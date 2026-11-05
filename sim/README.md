@@ -214,7 +214,7 @@ Linux attaches to an all-zero resource table and simply has no RPMsg channel.
 
 ## Phase 5 — PX4 on U54 hart 1 (in progress)
 
-Plan (rev 3, includes the Icicle Kit validation ladder H0-H6): https://claude.ai/artifact/LeJykmB6TEYY5QgRmeYGKz
+Plan (rev 3, includes the Icicle Kit validation ladder H0-H6): [`../px4-mpfs-plan.html`](../px4-mpfs-plan.html)
 
 PX4 `main` at 5f429033 in `sw/px4` (PX4's NuttX fork e5a23078). Port files live outside the clone in
 `sw/px4-chipwings/` (copied over the tree) and `sw/px4-patches/` (applied once); `sw/build-px4.sh` does both and builds.

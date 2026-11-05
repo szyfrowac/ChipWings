@@ -1,5 +1,4 @@
 <title>Chipwings PX4 Port Plan</title>
-<meta name="claude:viewport-fit-sides" content="cover">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Source+Sans+3:ital,wght@0,400;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap">
 <style>
 /* Layout: one reading column with wide tables allowed to scroll; a margin rail marks each section's role. */
@@ -73,7 +72,7 @@ footer { color: var(--muted); font-size: 0.9rem; border-top: 1px solid var(--lin
 <header>
   <span class="eyebrow">Chipwings · Phase 5 · plan revision 3</span>
   <h1>Porting PX4 to PolarFire SoC hart 1, modeled on PX4's STM32 port</h1>
-  <p class="meta">31 Oct 2026 (rev 3; rev 2 was 23 Oct) · PX4 <code>main</code> at 5f429033 in <code>sw/px4</code> · NuttX fork e5a23078 · supersedes the <a href="https://claude.ai/artifact/XmCHJy8y36CNAYEGTmjLQ4">22 Oct plan</a>, which used RP2040 and ESP32 as the reference</p>
+  <p class="meta">31 Oct 2026 (rev 3; rev 2 was 23 Oct) · PX4 <code>main</code> at 5f429033 in <code>sw/px4</code> · NuttX fork e5a23078 · supersedes the 22 Oct plan, which used RP2040 and ESP32 as the reference</p>
 </header>
 
 <section>
@@ -396,7 +395,7 @@ boards/chipwings/mpfs-hart1/             file set follows boards/px4/fmu-v6x, tr
 </section>
 
 <footer>
-  Sources in <code>sw/px4</code> at 5f429033: <code>platforms/nuttx/src/px4/stm/</code> (reference layer), <code>boards/px4/fmu-v6x/</code> (reference board), <code>platforms/nuttx/cmake/px4_impl_os.cmake</code>, <code>cmake/px4_add_common_flags.cmake</code>, <code>platforms/nuttx/src/px4/common/CMakeLists.txt</code>, <code>platforms/common/include/px4_platform_common/board_common.h</code>, NuttX <code>arch/risc-v/src/mpfs/</code> (<code>mpfs_dsn.c</code>, <code>mpfs_perf.c</code>, <code>mpfs_gpio.c</code>, <code>mpfs_corepwm.c</code>), Renode <code>polarfire-soc.repl</code>. Earlier guides: <a href="https://claude.ai/artifact/JSS6Hm9P15xCk34avAtzqg">NuttX porting</a>, <a href="https://claude.ai/artifact/WAoV543PDTCXK1yH83VrPc">Linux porting</a>.
+  Sources in <code>sw/px4</code> at 5f429033: <code>platforms/nuttx/src/px4/stm/</code> (reference layer), <code>boards/px4/fmu-v6x/</code> (reference board), <code>platforms/nuttx/cmake/px4_impl_os.cmake</code>, <code>cmake/px4_add_common_flags.cmake</code>, <code>platforms/nuttx/src/px4/common/CMakeLists.txt</code>, <code>platforms/common/include/px4_platform_common/board_common.h</code>, NuttX <code>arch/risc-v/src/mpfs/</code> (<code>mpfs_dsn.c</code>, <code>mpfs_perf.c</code>, <code>mpfs_gpio.c</code>, <code>mpfs_corepwm.c</code>), Renode <code>polarfire-soc.repl</code>. Earlier guides: <code>TUTORIAL_GUIDE.md</code> and <code>sim/README.md</code>.
 </footer>
 
 </div>
