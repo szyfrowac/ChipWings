@@ -1,0 +1,106 @@
+/****************************************************************************
+ * Chipwings Phase 4: NuttX on U54 hart 1 next to Linux on harts 2-4, with
+ * RPMsg over the Mi-V IHC (sw/configs/nsh-rpmsg-hart1).
+ *
+ * Same layout as the board's ld.script, moved into the DDR that the Linux
+ * device tree reserves for NuttX (nuttx@a2000000, 32 MiB, no-map), and matching
+ * the progmem/sram split of the board's ld-ihc.script:
+ *
+ *   0xA2000000  2 MiB  code + rodata + .data load image
+ *   0xA2200000  1 MiB  .data/.bss + heap (CONFIG_RAM_START/CONFIG_RAM_SIZE)
+ *   0xA2300000  4 KiB  RPMsg resource table (g_shmem, sw/patches/0002); the
+ *                      Linux device tree points miv_remoteproc's "rsc-table"
+ *                      region here
+ *   0xA2400000         vrings and buffers (CONFIG_MPFS_CH1_VRING*_ADDR),
+ *                      allocated by Linux, reserved in its device tree
+ *
+ * Selected by sw/build-nuttx.sh because it sits in the config's directory.
+ ****************************************************************************/
+
+MEMORY
+{
+    progmem (rx) : ORIGIN = 0xa2000000, LENGTH = 2M    /* w/ cache */
+    sram   (rwx) : ORIGIN = 0xa2200000, LENGTH = 1M    /* w/ cache */
+    rsctbl (rw)  : ORIGIN = 0xa2300000, LENGTH = 4K
+}
+
+OUTPUT_ARCH("riscv")
+
+__ksram_start = ORIGIN(sram);
+__ksram_size = LENGTH(sram);
+__ksram_end = ORIGIN(sram) + LENGTH(sram);
+
+ENTRY(_stext)
+EXTERN(__start)
+SECTIONS
+{
+    .text : {
+        _stext = ABSOLUTE(.);
+        *(.start .start.*)
+        *(.text .text.*)
+        *(.fixup)
+        *(.gnu.warning)
+        *(.rodata .rodata.* .srodata .srodata.*)
+        *(.gnu.linkonce.t.*)
+        *(.glue_7)
+        *(.glue_7t)
+        *(.got)
+        *(.gcc_except_table)
+        *(.gnu.linkonce.r.*)
+        _etext = ABSOLUTE(.);
+    } > progmem
+
+    .init_section : ALIGN(4) {
+        _sinit = ABSOLUTE(.);
+        KEEP(*(SORT_BY_INIT_PRIORITY(.init_array.*) SORT_BY_INIT_PRIORITY(.ctors.*)))
+        KEEP(*(.init_array EXCLUDE_FILE(*crtbegin.o *crtbegin?.o *crtend.o *crtend?.o) .ctors))
+        _einit = ABSOLUTE(.);
+    } > progmem
+
+    _eronly = ABSOLUTE(.);
+
+    .data : ALIGN(4) {
+        _sdata = ABSOLUTE(.);
+        *(.data .data.*)
+        *(.sdata .sdata.* .sdata2.*)
+        *(.gnu.linkonce.d.*)
+        *(.gnu.linkonce.s.*)
+        CONSTRUCTORS
+        . = ALIGN(4);
+        _edata = ABSOLUTE(.);
+    } > sram AT > progmem
+
+    /* Loaded as zeros with the image; NuttX fills it in at rptun start */
+
+    .resource_table : ALIGN(8) {
+        KEEP(*(.resource_table))
+    } > rsctbl
+
+    PROVIDE(__global_pointer$ = _sdata + ((_edata - _sdata) / 2));
+
+    .bss : ALIGN(4) {
+        _sbss = ABSOLUTE(.);
+        *(.bss .bss.*)
+        *(.sbss .sbss.*)
+        *(.gnu.linkonce.b.*)
+        *(.gnu.linkonce.sb.*)
+        *(COMMON)
+        . = ALIGN(32);
+        _ebss = ABSOLUTE(.);
+    } > sram
+
+    /* Stabs debugging sections. */
+
+    .stab 0 : { *(.stab) }
+    .stabstr 0 : { *(.stabstr) }
+    .stab.excl 0 : { *(.stab.excl) }
+    .stab.exclstr 0 : { *(.stab.exclstr) }
+    .stab.index 0 : { *(.stab.index) }
+    .stab.indexstr 0 : { *(.stab.indexstr) }
+    .comment 0 : { *(.comment) }
+    .debug_abbrev 0 : { *(.debug_abbrev) }
+    .debug_info 0 : { *(.debug_info) }
+    .debug_line 0 : { *(.debug_line) }
+    .debug_pubnames 0 : { *(.debug_pubnames) }
+    .debug_aranges 0 : { *(.debug_aranges) }
+}

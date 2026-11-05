@@ -1,0 +1,77 @@
+--- a/arch/risc-v/src/mpfs/mpfs_ihc.c
++++ b/arch/risc-v/src/mpfs/mpfs_ihc.c
+@@ -29,6 +29,7 @@
+ #include <assert.h>
+ #include <debug.h>
+ #include <errno.h>
++#include <inttypes.h>
+ #include <stdbool.h>
+ #include <stdio.h>
+ #include <stdint.h>
+@@ -83,6 +84,11 @@
+ 
+ #define MPFS_RPTUN_CPU_NAME      "mpfs-ihc"
+ 
++/* mpfs_rptun_notify() keeps trying for about 10 ms */
++
++#define MPFS_RPTUN_NOTIFY_RETRIES   1000
++#define MPFS_RPTUN_NOTIFY_DELAY_US  10
++
+ /* Vring configuration parameters */
+ 
+ #define VRINGS                   0x02        /* Number of vrings          */
+@@ -280,9 +286,15 @@
+                   return_hart_id = hart_id;
+                   *is_ack = true;
+ 
++                  /* We might also have a message.  Only if its MP bit is
++                   * set: otherwise the ISR would re-read the old message
++                   * and ack a message that never came.
++                   */
++
+                   test_int = (1 << (hart_id * 2));
+ 
+-                  if ((g_connected_hart_ints & test_int) == test_int)
++                  if ((msg_avail & test_int) &&
++                      (g_connected_hart_ints & test_int) == test_int)
+                     {
+                       *is_msg = true;
+                     }
+@@ -1032,7 +1044,7 @@
+ static int mpfs_rptun_notify(struct rptun_dev_s *dev, uint32_t notifyid)
+ {
+   uint32_t tx_msg[IHC_MAX_MESSAGE_SIZE];
+-  uint32_t retries = 5;
++  uint32_t retries = MPFS_RPTUN_NOTIFY_RETRIES;
+   int      ret = OK;
+ 
+   /* We only care about the queue with notifyid VRING0 */
+@@ -1042,16 +1054,23 @@
+       tx_msg[0] = notifyid;
+       tx_msg[1] = 0;
+ 
+-      /* This failure should happen very rarely */
++      /* The channel is busy while our previous notification or an incoming
++       * message from the remote is pending; the latter is cleared by our
++       * own IHC interrupt.  Give both time instead of dropping the
++       * notification: a lost kick leaves the remote waiting forever for
++       * data that is already in the vring.
++       */
+ 
+-      do
++      while ((ret = mpfs_ihc_tx_message(CONTEXTA_HARTID, tx_msg)) != OK &&
++             --retries > 0)
+         {
+-           ret = mpfs_ihc_tx_message(CONTEXTA_HARTID, tx_msg);
++          up_udelay(MPFS_RPTUN_NOTIFY_DELAY_US);
+         }
+-      while ((ret != OK) && --retries);
+ 
+-      if (retries == 0)
++      if (ret != OK)
+         {
++          ihcerr("ERROR: vring %" PRIu32 " notification lost: %d\n",
++                 notifyid, ret);
+           return -EIO;
+         }
+     }

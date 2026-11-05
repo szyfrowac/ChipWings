@@ -1,0 +1,13 @@
+{
+    "board_id": 7300,
+    "magic": "PX4FWv1",
+    "description": "Firmware for the Chipwings flight-control core (PolarFire SoC U54 hart 1)",
+    "image": "",
+    "build_time": 0,
+    "summary": "CHIPWINGS-MPFS-HART1",
+    "version": "0.1",
+    "image_size": 0,
+    "image_maxsize": 12582912,
+    "git_identity": "",
+    "board_revision": 0
+}

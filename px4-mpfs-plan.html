@@ -1,0 +1,402 @@
+<title>Chipwings PX4 Port Plan</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Source+Sans+3:ital,wght@0,400;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column with wide tables allowed to scroll; a margin rail marks each section's role. */
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --fg: #1b2230;
+  --muted: #5a6475;
+  --line: #d9dee6;
+  --accent: #1d5fa6;      /* PolarFire / Chipwings */
+  --stm: #0f7a6c;         /* STM32 reference */
+  --warn: #9a5b00;
+  --code-bg: #eef1f5;
+  --f-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --f-body: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12161d; --surface: #191f28; --fg: #e3e8ef; --muted: #9aa5b5; --line: #2c3542;
+    --accent: #7fb2ec; --stm: #5ccfb9; --warn: #e3a64a; --code-bg: #212935; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12161d; --surface: #191f28; --fg: #e3e8ef; --muted: #9aa5b5; --line: #2c3542;
+  --accent: #7fb2ec; --stm: #5ccfb9; --warn: #e3a64a; --code-bg: #212935; color-scheme: dark;
+}
+body { background: var(--bg); color: var(--fg); font-family: var(--f-body); font-size: 17px; line-height: 1.6; }
+.wrap { max-width: 900px; margin: 0 auto; padding-block: 40px 80px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: flex; flex-direction: column; gap: 44px; }
+h1, h2, h3 { font-family: var(--f-display); text-wrap: balance; line-height: 1.2; margin: 0; }
+h1 { font-size: 2.1rem; font-weight: 700; letter-spacing: -0.01em; }
+h2 { font-size: 1.45rem; font-weight: 600; }
+h3 { font-size: 1.08rem; font-weight: 600; margin-top: 8px; }
+p, ul, ol { margin: 0; max-width: 68ch; }
+section { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.eyebrow { font-family: var(--f-mono); font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+header { display: flex; flex-direction: column; gap: 12px; border-bottom: 1px solid var(--line); padding-bottom: 24px; }
+.meta { color: var(--muted); font-size: 0.95rem; }
+a { color: var(--accent); }
+code { font-family: var(--f-mono); font-size: 0.86em; background: var(--code-bg); padding: 1px 5px; border-radius: 3px; overflow-wrap: anywhere; }
+pre { font-family: var(--f-mono); font-size: 0.82rem; line-height: 1.5; background: var(--code-bg); padding: 14px 16px; border-radius: 4px; margin: 0; overflow-x: auto; }
+pre code { background: none; padding: 0; overflow-wrap: normal; }
+.tbl { overflow-x: auto; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
+th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+th { font-family: var(--f-display); font-weight: 600; font-size: 0.82rem; letter-spacing: 0.03em; color: var(--muted); background: var(--bg); }
+tr:last-child td { border-bottom: 0; }
+td.n { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.tag { display: inline-block; font-family: var(--f-mono); font-size: 0.72rem; padding: 1px 7px; border-radius: 10px; border: 1px solid currentColor; white-space: nowrap; }
+.t-now { color: var(--accent); }
+.t-later { color: var(--muted); }
+.t-skip { color: var(--warn); }
+.stm { color: var(--stm); font-weight: 600; }
+.change { border-left: 3px solid var(--stm); background: var(--surface); padding: 14px 18px; display: flex; flex-direction: column; gap: 8px; }
+.change ul { padding-left: 20px; }
+ol.steps { padding-left: 0; list-style: none; counter-reset: s; display: flex; flex-direction: column; gap: 18px; max-width: none; }
+ol.steps > li { counter-increment: s; display: grid; grid-template-columns: 2.2rem 1fr; gap: 0 10px; }
+ol.steps > li::before { content: counter(s); font-family: var(--f-display); font-weight: 700; font-size: 1.1rem; color: var(--accent); }
+ol.steps > li > div { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+ol.steps ul { padding-left: 20px; max-width: 68ch; }
+.check { font-size: 0.93rem; color: var(--muted); }
+.check b { color: var(--fg); font-weight: 600; }
+ul.box { list-style: none; padding-left: 0; display: flex; flex-direction: column; gap: 4px; }
+ul.box li::before { content: "☐  "; color: var(--muted); }
+footer { color: var(--muted); font-size: 0.9rem; border-top: 1px solid var(--line); padding-top: 18px; }
+@media (max-width: 520px) { body { font-size: 16px; } h1 { font-size: 1.7rem; } }
+</style>
+
+<div class="wrap">
+
+<header>
+  <span class="eyebrow">Chipwings · Phase 5 · plan revision 3</span>
+  <h1>Porting PX4 to PolarFire SoC hart 1, modeled on PX4's STM32 port</h1>
+  <p class="meta">31 Oct 2026 (rev 3; rev 2 was 23 Oct) · PX4 <code>main</code> at 5f429033 in <code>sw/px4</code> · NuttX fork e5a23078 · supersedes the <a href="https://claude.ai/artifact/XmCHJy8y36CNAYEGTmjLQ4">22 Oct plan</a>, which used RP2040 and ESP32 as the reference</p>
+</header>
+
+<section>
+  <div class="change">
+    <h2>What changed in revision 3</h2>
+    <ul>
+      <li>The goal is now explicit: this software will eventually fly. Renode proves the logic; it does not prove the board. A new section, <a href="#hardware">From Renode to the Icicle Kit</a>, adds hardware rungs H0–H6 after the Renode steps.</li>
+      <li>Two additions before step 5: tests that run unchanged against Renode or a serial port, and a rehearsal of the HSS boot path in Renode.</li>
+      <li>New checks in steps 7 and 8: PX4 must keep holding hover while Linux is under full load, and while Linux panics.</li>
+      <li>Hardware status: Icicle Kit on hand with the 2025 reference design; power supply not yet delivered, so H0 onward waits for it. Renode steps 1–9 do not.</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <div class="change">
+    <h2>What changed from revision 1</h2>
+    <ul>
+      <li>The reference port is now <span class="stm">STM32</span> (<code>platforms/nuttx/src/px4/stm/</code>), not RP2040 or ESP32.</li>
+      <li>The chip layer copies STM32's two-level layout: a <code>microchip_common/</code> folder holding the code, and a thin <code>mpfs/</code> folder that selects pieces and adds chip headers.</li>
+      <li>Every PX4 hardware hook is now mapped to its STM32 implementation and its MPFS equivalent, including the hooks we postpone, so later phases slot into the right place.</li>
+      <li>The board folder follows <code>boards/px4/fmu-v6x</code> (STM32H7), including selecting the timer in <code>board_config.h</code>.</li>
+      <li>Unchanged: the goal, the memory map, RPMsg to Linux, SIH for the closed loop, and the "written from scratch, nothing from TII" rule.</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <span class="eyebrow">Rationale</span>
+  <h2>Why STM32 is the right model</h2>
+  <p>Copy the port PX4 itself is built around, not the smallest one. Every Pixhawk FMU from v2 to v6X runs on STM32. PX4's CI builds it on every commit, and the maintainers review changes against it. Its layer is the full set of services a flight controller needs. The RP2040 and ESP32 layers are community ports that implement the minimum to boot, so copying them would also copy their gaps.</p>
+  <p>What STM32 gives us that the small ports don't:</p>
+  <ul>
+    <li><b>The intended folder structure.</b> <code>stm32_common/</code> holds the code, and each family folder (<code>stm32f4</code>, <code>stm32f7</code>, <code>stm32h7</code>) is a few CMake lines plus header overrides. Microchip has the same situation: PolarFire SoC and PIC64GX share the U54 core complex.</li>
+    <li><b>The full timer.</b> STM32's <code>hrt.c</code> includes a latency histogram (<code>perf latency</code>) and selects its timer from <code>board_config.h</code>. RP2040's <code>hrt.c</code> is a cut-down copy of the same file.</li>
+    <li><b>The complete list of hooks</b>: reset modes, UUID/MFGUID/PX4 GUID, hardware revision, SPI/I2C bus descriptions, PWM via <code>io_timer</code>, DShot, ADC, tone alarm, watchdog, crash dump. That tells us exactly what we are deferring, not just what we need today.</li>
+  </ul>
+  <p>STM32 is the model for structure and completeness. Register-level code can't be copied, because the peripherals differ. Where STM32 relies on a hardware feature MPFS lacks, the table below says so.</p>
+</section>
+
+<section>
+  <span class="eyebrow">Reference</span>
+  <h2>How the STM32 layer is put together</h2>
+  <pre><code>platforms/nuttx/src/px4/stm/
+├── CMakeLists.txt                 add_subdirectory(${PX4_CHIP})
+├── stm32_common/                  the code (≈ 9,900 lines)
+│   ├── hrt/hrt.c                  979   free-running timer + compare, callout queue, PPM
+│   ├── board_reset/               157   reset modes via RTC backup register
+│   ├── version/                   349   board_identity.c (UID), board_mcu_version.c (IDCODE)
+│   ├── board_critmon/              79   cycle counter for NuttX critmon
+│   ├── board_hw_info/             651   HW rev/ver from resistor dividers
+│   ├── spi/ io_pins/ dshot/ adc/ led_pwm/ tone_alarm/ srgbled_dma/ bitbang_uart/
+│   └── include/px4_arch/          micro_hal.h, hw_description.h, spi_/i2c_hw_description.h, io_timer.h …
+└── stm32h7/                       a family folder (≈ 2,000 lines, mostly headers + px4io/adc)
+    ├── CMakeLists.txt             add_subdirectory(../stm32_common/hrt hrt) … one line per piece
+    └── include/px4_arch/micro_hal.h   #include "../../../stm32_common/include/px4_arch/micro_hal.h" + H7 defs</code></pre>
+  <p>How PX4 finds and links it (all checked in <code>sw/px4</code>):</p>
+  <div class="tbl"><table>
+    <tr><th>Mechanism</th><th>Where</th><th>What we do for MPFS</th></tr>
+    <tr><td>Chip detection: NuttX Kconfig symbol → <code>PX4_CHIP_MANUFACTURER</code>, <code>PX4_CHIP</code></td><td><code>platforms/nuttx/cmake/px4_impl_os.cmake</code> 134–185</td><td>Add <code>elseif(CONFIG_ARCH_CHIP_MPFS)</code> → <code>microchip</code> / <code>mpfs</code></td></tr>
+    <tr><td>Header search path <code>…/${PX4_CHIP_MANUFACTURER}/${PX4_CHIP}/include</code></td><td><code>cmake/px4_add_common_flags.cmake</code> 180</td><td>Nothing; works once detection is in</td></tr>
+    <tr><td>Libraries linked by name: <code>arch_board_reset</code>, <code>arch_board_critmon</code>, <code>arch_version</code></td><td><code>platforms/nuttx/src/px4/common/CMakeLists.txt</code> 57–59</td><td>Provide targets with exactly these names</td></tr>
+    <tr><td><code>arch_hrt</code> linked into the final image</td><td><code>platforms/nuttx/CMakeLists.txt</code> 163, 295</td><td>Same</td></tr>
+    <tr><td>SoC ID reported in <code>ver</code> and MAVLink</td><td><code>PX4_SOC_ARCH_ID_t</code>, <code>platforms/common/include/px4_platform_common/board_common.h</code> 378</td><td>Add <code>PX4_SOC_ARCH_ID_MPFS</code> (a one-line patch)</td></tr>
+    <tr><td>Board selects the HRT timer and channel</td><td><code>boards/px4/fmu-v6x/src/board_config.h</code> 317–318 (<code>HRT_TIMER 8</code>, <code>HRT_TIMER_CHANNEL 3</code>)</td><td>Our <code>board_config.h</code> sets <code>HRT_TIMER 1</code> (MSS Timer 1)</td></tr>
+  </table></div>
+</section>
+
+<section>
+  <span class="eyebrow">Mapping</span>
+  <h2>Every STM32 piece and its MPFS equivalent</h2>
+  <p><span class="tag t-now">Phase 5</span> is written now. <span class="tag t-later">later</span> keeps its slot in the tree for a later phase. <span class="tag t-skip">n/a</span> has no MPFS counterpart.</p>
+  <div class="tbl"><table>
+    <tr><th>Piece</th><th>STM32 implementation</th><th>MPFS equivalent</th><th>When</th></tr>
+    <tr><td><code>hrt</code></td>
+        <td>One 16-bit TIMx free-running at 1 MHz; a compare channel (CCR) fires at the next deadline; wraps tracked with <code>base_time</code>; ISR measures latency; optional PPM capture on a second channel</td>
+        <td>Counter: CLINT <code>mtime</code> (0x0200BFF8), 64-bit at 1 MHz, so no wrap tracking and <code>hrt_absolute_time</code> is one load, on the same clock Linux uses. Compare: MSS Timer 1 (0x20125000, PLIC 82) in one-shot mode, loaded with the time to the next deadline. Keep the callout queue, <code>HRT_INTERVAL_MIN/MAX</code> and the latency histogram exactly as STM32 has them; drop PPM.</td>
+        <td><span class="tag t-now">Phase 5</span></td></tr>
+    <tr><td><code>board_reset</code></td>
+        <td>Writes a mode word (boot to bootloader, CAN bootloader…) to an RTC backup register, then <code>up_systemreset()</code></td>
+        <td>Same file shape and mode table. Only <code>BOARD_RESET_MODE_CLEAR</code> is supported (no PX4 bootloader); other modes return an error. Reset is <code>up_systemreset()</code> in Renode. On the Icicle Kit, ask HSS to restart only hart 1 (open question).</td>
+        <td><span class="tag t-now">Phase 5</span></td></tr>
+    <tr><td><code>version/board_identity.c</code></td>
+        <td>Reads the 96-bit unique ID from a fixed address; builds UUID, MFGUID, PX4 GUID</td>
+        <td><code>mpfs_read_dsn()</code> in NuttX (<code>mpfs_dsn.c</code>) returns the 128-bit device serial number from the system controller; set <code>PX4_CPU_UUID_BYTE_LENGTH</code> to 16. Renode does not model that service, so fall back to a fixed ID if the call times out.</td>
+        <td><span class="tag t-now">Phase 5</span></td></tr>
+    <tr><td><code>version/board_mcu_version.c</code></td>
+        <td>Reads <code>DBGMCU_IDCODE</code>, maps the revision to a name and errata list</td>
+        <td>Returns <code>"MPFS"</code> plus the revision; fixed in Renode.</td>
+        <td><span class="tag t-now">Phase 5</span></td></tr>
+    <tr><td><code>board_critmon</code></td>
+        <td>DWT cycle counter</td>
+        <td><code>up_perf_gettime()</code> from NuttX <code>mpfs_perf.c</code>; only built with <code>CONFIG_SCHED_CRITMONITOR</code></td>
+        <td><span class="tag t-now">Phase 5</span></td></tr>
+    <tr><td><code>include/px4_arch/micro_hal.h</code></td>
+        <td>Maps <code>px4_arch_configgpio</code> etc. to <code>stm32_*</code>; bus init macros; UUID sizes; <code>PX4_BUS_OFFSET 0</code>; cache alignment; BBSRAM crash dump</td>
+        <td>Map to <code>mpfs_configgpio</code>, <code>mpfs_gpioread</code>, <code>mpfs_gpiowrite</code>, <code>mpfs_gpiosetevent</code>, <code>mpfs_spibus_initialize</code>, <code>mpfs_i2cbus_initialize</code>. <code>PX4_BUS_OFFSET 1</code> because MPFS ports are 0-based (as on Kinetis and S32K). 64-byte cache-line alignment. No BBSRAM, so <code>px4_savepanic</code> is a stub.</td>
+        <td><span class="tag t-now">Phase 5</span></td></tr>
+    <tr><td><code>hw_description.h</code>, <code>spi_hw_description.h</code>, <code>i2c_hw_description.h</code></td>
+        <td>Constexpr bus/device tables used by the board's <code>spi.cpp</code> and <code>i2c.cpp</code></td>
+        <td>Same types with MPFS bus enums (MSS SPI0/1, I2C0/1, later fabric CoreSPI). The board declares zero buses in Phase 5, since SIH needs no sensors.</td>
+        <td><span class="tag t-now">Phase 5</span> headers · buses <span class="tag t-later">Phase 7</span></td></tr>
+    <tr><td><code>spi/spi.cpp</code></td><td>Bus reset and chip-select helpers</td><td>Port when real sensors arrive</td><td><span class="tag t-later">Phase 7</span></td></tr>
+    <tr><td><code>io_pins</code> (io_timer, pwm_servo, input_capture), <code>dshot</code>, <code>led_pwm</code>, <code>tone_alarm</code></td>
+        <td>Advanced and general-purpose timers driving pins</td>
+        <td>Fabric CorePWM (NuttX <code>mpfs_corepwm.c</code>) and our own motor-control IP</td>
+        <td><span class="tag t-later">Phase 6</span></td></tr>
+    <tr><td><code>watchdog</code> (iwdg, in the family folders)</td><td>Independent watchdog kicked from the idle loop</td><td>MSS watchdog for hart 1 (<code>wdog1</code> at 0x20101000, modeled in Renode)</td><td><span class="tag t-later">after step 9</span></td></tr>
+    <tr><td><code>board_hw_info</code></td><td>Board revision from resistor dividers read by ADC</td><td>Not needed; one board revision</td><td><span class="tag t-skip">n/a</span></td></tr>
+    <tr><td><code>adc</code>, <code>px4io_serial</code>, <code>bitbang_uart</code>, <code>srgbled_dma</code></td><td>On-chip ADC, IO co-processor link, misc.</td><td>No MSS ADC and no IO co-processor; battery comes from SIH</td><td><span class="tag t-skip">n/a</span></td></tr>
+  </table></div>
+  <h3>The one real design difference: the timer</h3>
+  <p>On STM32 the counter and the compare register belong to the same timer, so a deadline is an absolute counter value. MPFS has no MSS timer with a compare channel. Its free-running 64-bit counter is the CLINT, and the CLINT compare for hart 1 (<code>mtimecmp</code>) already drives the NuttX tick. NuttX on STM32 also keeps its tick (SysTick) separate from the PX4 timer, so splitting the two jobs follows the STM32 pattern.</p>
+  <p>The cost is that MSS Timer 1 is loaded with a relative delay, which adds a little skew. The latency histogram STM32 already keeps will show that skew. If it is too large, the fallback is to move the NuttX tick to MSS Timer 2 and give PX4 <code>mtimecmp</code>, which would mirror STM32 exactly but means patching NuttX's <code>mpfs_timerisr.c</code>.</p>
+</section>
+
+<section>
+  <span class="eyebrow">Layout</span>
+  <h2>What we create</h2>
+  <pre><code>platforms/nuttx/src/px4/microchip/
+├── CMakeLists.txt                       add_subdirectory(${PX4_CHIP})
+├── microchip_common/
+│   ├── hrt/            CMakeLists.txt  hrt.c          → arch_hrt
+│   ├── board_reset/    CMakeLists.txt  board_reset.cpp → arch_board_reset
+│   ├── version/        CMakeLists.txt  board_identity.c  board_mcu_version.c → arch_version
+│   ├── board_critmon/  CMakeLists.txt  board_critmon.c → arch_board_critmon
+│   └── include/px4_arch/  micro_hal.h  hw_description.h  spi_hw_description.h  i2c_hw_description.h
+└── mpfs/
+    ├── CMakeLists.txt                   add_subdirectory(../microchip_common/hrt hrt) …
+    └── include/px4_arch/micro_hal.h     includes the common header; PX4_SOC_ARCH_ID_MPFS, MPFS addresses
+
+boards/chipwings/mpfs-hart1/             file set follows boards/px4/fmu-v6x, trimmed
+├── default.px4board                     TOOLCHAIN riscv64-unknown-elf, ARCHITECTURE rv64gc, module list
+├── firmware.prototype
+├── init/rc.board_defaults               SIH airframe, tmpfs params, mavlink on /dev/ttyRPMSG0
+├── nuttx-config/
+│   ├── Kconfig
+│   ├── include/board.h                  from NuttX boards/risc-v/mpfs/icicle
+│   ├── nsh/defconfig                    from sw/configs/nsh-rpmsg-hart1 + PX4 needs (diff vs fmu-v6x)
+│   └── scripts/script.ld                memory layout below
+└── src/
+    ├── CMakeLists.txt  board_config.h   HRT_TIMER 1, no PWM channels, no HW versioning
+    ├── init.cpp                         board_app_initialize(): px4_platform_init, rptun start (was cwinit)
+    ├── spi.cpp  i2c.cpp                 empty bus tables
+    └── rpmsg_tty.c                      raw rpmsg-tty endpoint → /dev/ttyRPMSG0</code></pre>
+  <p>As in revision 1, these files live in <code>sw/px4-chipwings/</code> outside the clone. <code>sw/build-px4.sh</code> copies them in and applies <code>sw/px4-patches/</code> (chip detection, SoC ID, any 64-bit fixes). A two-level layout for one chip costs about five extra small files, and it means PIC64GX support later is only a new <code>pic64gx/</code> folder.</p>
+</section>
+
+<section>
+  <span class="eyebrow">Procedure</span>
+  <h2>Steps</h2>
+  <p>Each step changes one layer and ends in a check, so a failure points at the layer just added: build, then boot, then correct, then fast.</p>
+  <ol class="steps">
+    <li><div>
+      <h3>Workspace and toolchain</h3>
+      <ul>
+        <li><code>sw/px4-chipwings/</code>, <code>sw/px4-patches/</code>, <code>sw/build-px4.sh</code>.</li>
+        <li>A shim folder maps <code>riscv64-unknown-elf-*</code> to the xPack <code>riscv-none-elf-*</code> 15.2 tools, so PX4's toolchain file works unchanged.</li>
+        <li>Python requirements go into a venv at <code>sw/px4-venv</code>.</li>
+      </ul>
+      <p class="check"><b>Check:</b> <code>make chipwings_mpfs-hart1_default</code> gets past CMake configure.</p>
+    </div></li>
+    <li><div>
+      <h3>Chip detection and the empty STM32-shaped skeleton</h3>
+      <ul>
+        <li>Patch <code>px4_impl_os.cmake</code> and <code>board_common.h</code>.</li>
+        <li>Create <code>microchip/</code>, <code>microchip_common/</code> and <code>mpfs/</code> with the CMake wiring copied line for line from <code>stm/</code> and <code>stm32h7/</code>, and empty sources.</li>
+      </ul>
+      <p class="check"><b>Check:</b> everything compiles and the link fails only on undefined <code>hrt_*</code> and <code>board_*</code> symbols. That list is the to-do list for step 4.</p>
+    </div></li>
+    <li><div>
+      <h3>Board skeleton, following fmu-v6x</h3>
+      <ul>
+        <li>Create the files in the layout above.</li>
+        <li>Build <code>nsh/defconfig</code> from our Phase 4 config, then add what PX4 needs from NuttX: ROMFS, boardctl, work queues, instrumentation for <code>top</code>, tmpfs. Find that list by diffing against <code>boards/px4/fmu-v6x/nuttx-config/nsh/defconfig</code>.</li>
+        <li><code>board_config.h</code> carries the same kinds of defines as fmu-v6x's: HRT timer, LED, PWM count.</li>
+      </ul>
+      <p class="check"><b>Check:</b> the only link errors left are the chip-layer symbols.</p>
+    </div></li>
+    <li><div>
+      <h3>Chip layer, in STM32's order</h3>
+      <ul>
+        <li>Write the headers first. Use STM32's <code>micro_hal.h</code> as the template and replace each <code>stm32_*</code> mapping with its <code>mpfs_*</code> call; anything with no counterpart gets a comment saying why.</li>
+        <li>Then <code>version</code>, <code>board_reset</code> and <code>board_critmon</code>, keeping STM32's function bodies' structure.</li>
+        <li><code>hrt.c</code> last. Take STM32's file and keep the callout queue, <code>hrt_call_*</code>, <code>hrt_ioctl</code> hooks and latency code. Replace <code>hrt_tim_init</code>, <code>hrt_tim_isr</code>, <code>hrt_absolute_time</code> and the compare write in <code>hrt_call_reschedule</code>. Drop the PPM block.</li>
+        <li>Before moving on, <code>diff</code> each file against its STM32 original and confirm every difference is deliberate. This is the review method for the whole port.</li>
+      </ul>
+      <p class="check"><b>Check:</b> <code>px4.elf</code> links; its memory use fits the regions below.</p>
+    </div></li>
+    <li><div>
+      <h3>First boot, PX4 alone on hart 1</h3>
+      <p><code>sim/phase5/px4.resc</code> loads <code>px4.elf</code> on <code>u54_1</code> only; Linux stays off.</p>
+      <p class="check"><b>Check:</b> <code>ver all</code>, <code>uorb top</code>, <code>work_queue status</code>, <code>top</code> and <code>param show</code> work. <code>tests hrt</code> passes. <code>perf latency</code> shows most callouts in the 1–5 µs buckets. <code>hrt_absolute_time</code> advances 1,000,000 per simulated second.</p>
+    </div></li>
+    <li><div>
+      <h3>RPMsg back on</h3>
+      <p><code>init.cpp</code> starts rptun the way <code>cwinit</code> did. Linux boots on harts 2–4 as in Phase 4.</p>
+      <p class="check"><b>Check:</b> <code>sim/phase4/rpmsg_test.py 500</code> passes 500/500 against PX4's NuttX; <code>hartcheck</code> and <code>rpmsg_ping</code> pass.</p>
+    </div></li>
+    <li><div>
+      <h3>Closed loop with SIH</h3>
+      <p>Enable <code>simulator_sih</code>, <code>sensors</code>, <code>ekf2</code>, the multicopter controllers, <code>commander</code>, <code>navigator</code>, <code>land_detector</code> and <code>mavlink</code>. Select airframe <code>1100_rc_quad_x_sih</code>, which sets <code>SYS_HITL 2</code>.</p>
+      <p class="check"><b>Check:</b> <code>commander arm</code>, <code>commander takeoff</code>; <code>listener vehicle_local_position</code> shows z near −2.5 m and holding; <code>ekf2 status</code> shows no faults. Record CPU load and the Renode-to-real-time ratio.</p>
+      <p class="check"><b>Isolation checks (new):</b> while hovering, (a) run <code>stress-ng</code> on all three Linux harts: the hover holds and <code>perf latency</code> does not shift; (b) panic Linux with <code>echo c &gt; /proc/sysrq-trigger</code>: PX4 keeps hovering and lands on its own failsafe when the MAVLink link drops. A flight controller must not depend on Linux staying healthy.</p>
+    </div></li>
+    <li><div>
+      <h3>MAVLink to Linux over RPMsg</h3>
+      <p><code>rpmsg_tty.c</code> registers <code>/dev/ttyRPMSG0</code> on endpoint <code>rpmsg-tty</code> with raw bytes, which Linux's <code>rpmsg_tty</code> driver accepts. NuttX's <code>uart_rpmsg</code> adds a header that Linux's driver rejects. PX4 runs <code>mavlink start -d /dev/ttyRPMSG0 -m onboard</code>. A new Linux example, <code>mavlink_link</code>, prints HEARTBEAT and ATTITUDE and sends arm and takeoff.</p>
+      <p class="check"><b>Check:</b> HEARTBEAT arrives at 1 Hz and ATTITUDE has no gaps in sequence numbers for 60 s; the vehicle takes off on Linux's command.</p>
+    </div></li>
+    <li><div>
+      <h3>Tests and docs</h3>
+      <p><code>sim/phase5/run.sh</code>, <code>phase5_test.py</code> covering steps 5–8, <code>sim/README.md</code>, and the Linux guide updated with results.</p>
+    </div></li>
+  </ol>
+</section>
+
+<section>
+  <span class="eyebrow">Memory</span>
+  <h2>Memory layout</h2>
+  <p>Unchanged from revision 1. PX4 moves into the 28 MiB region Linux already reserves, so the Linux device tree does not change. Expect about 3–4 MB of RV64GC code, which is too much for the old 3 MiB slot.</p>
+  <div class="tbl"><table>
+    <tr><th>Address</th><th>Size</th><th>Holds</th><th>Set by</th></tr>
+    <tr><td><code>0xA2000000</code></td><td class="n">3 MiB</td><td>Unused (Phase 4 NSH image)</td><td>—</td></tr>
+    <tr><td><code>0xA2300000</code></td><td class="n">4 KiB</td><td>RPMsg resource table (patch 0002)</td><td><code>script.ld</code>; Linux <code>rsc-table</code></td></tr>
+    <tr><td><code>0xA2400000</code></td><td class="n">64 KiB</td><td>vring0, vring1</td><td>Linux DT; <code>CONFIG_MPFS_CH1_VRING*_ADDR</code></td></tr>
+    <tr><td><code>0xA2410000</code></td><td class="n">256 KiB</td><td>RPMsg buffers</td><td>Linux DT <code>vdev0buffer</code></td></tr>
+    <tr><td><code>0xA2450000</code></td><td class="n">12 MiB</td><td>PX4 code, rodata, <code>.data</code> load image</td><td><code>script.ld</code> <code>progmem</code></td></tr>
+    <tr><td><code>0xA3050000</code></td><td class="n">15.9 MiB</td><td><code>.data</code>, <code>.bss</code>, NuttX heap</td><td><code>CONFIG_RAM_START</code>, <code>CONFIG_RAM_SIZE 0xFF0000</code></td></tr>
+    <tr><td><code>0xA4040000</code></td><td class="n">—</td><td>End of the Linux reservation</td><td>Linux DT</td></tr>
+  </table></div>
+</section>
+
+<section id="hardware">
+  <span class="eyebrow">Hardware</span>
+  <h2>From Renode to the Icicle Kit</h2>
+  <p>Renode has passed everything so far, but Phases 1–4 skipped the parts of the real boot that only the board has. These are the gaps, all recorded in <code>sim/README.md</code>:</p>
+  <div class="tbl"><table>
+    <tr><th>In Renode</th><th>On the Icicle Kit</th></tr>
+    <tr><td>ELFs loaded straight onto each hart; no HSS</td><td>HSS on the E51 boots an <code>hss-payload-generator</code> image from eMMC/SD; its YAML sets entry points, AMP contexts and PMP per hart</td></tr>
+    <tr><td>Mi-V IHC is our C# model; the SBI extension 0x09000029 comes from our OpenSBI patch</td><td>IHC is fabric IP in the reference design; HSS provides the SBI extension</td></tr>
+    <tr><td>Clocks, resets and the system controller disabled in the device tree</td><td>HSS sets them up</td></tr>
+    <tr><td>MSS Timer clock rate assumed; device serial number not modeled; timing not cycle-accurate</td><td>Real APB clock, real DSN, real cache and DDR contention between harts</td></tr>
+  </table></div>
+  <h3>Before step 5: two additions in Renode</h3>
+  <ul>
+    <li><b>A. Tests that don't care where they run.</b> <code>rpmsg_test.py</code>, <code>run_examples.py</code> and <code>phase5_test.py</code> take <code>--target renode|board</code>. The console is either a Renode socket or a pyserial port; the pass criteria are identical.</li>
+    <li><b>B. HSS boot rehearsal.</b> Build the real HSS payload (Linux on harts 2–4, PX4 on hart 1) and boot it through HSS in Renode, as Phase 0 did with the 2020 HSS. If current HSS does not run in Renode, this check moves to H1 on the board.</li>
+  </ul>
+  <h3>The hardware ladder</h3>
+  <p>The exact <code>px4.elf</code> that passed in Renode goes onto the board. Only the packaging and the console change, so a failure on the board that passed in Renode points at the board layer, not our code. Each rung must pass before the next.</p>
+  <div class="tbl"><table>
+    <tr><th>Rung</th><th>On the Icicle Kit</th><th>Passes when</th><th>Matches</th></tr>
+    <tr><td>H0</td><td>Microchip's AMP demo on the 2025 reference design as it is</td><td>Board, HSS and IHC at 0x50000000 confirmed working</td><td>Phase 0</td></tr>
+    <tr><td>H1</td><td>Our NuttX nsh on hart 1 through an HSS payload</td><td><code>ostest</code> passes</td><td>Phase 1</td></tr>
+    <tr><td>H2</td><td>Our Linux on harts 2–4 plus NuttX, RPMsg</td><td><code>rpmsg_test.py 2000</code> and the 6 examples pass over serial</td><td>Phases 3–4</td></tr>
+    <tr><td>H3</td><td>PX4 alone on hart 1</td><td>Step 5 checks; MSS Timer clock measured against <code>mtime</code>; real DSN read; real <code>perf latency</code> recorded</td><td>Step 5</td></tr>
+    <tr><td>H4</td><td>PX4 + Linux + SIH, nothing connected to motors</td><td>Steps 6–8 checks including the isolation checks; multi-hour soak with no stall, fault or EKF reset</td><td>Steps 6–8</td></tr>
+    <tr><td>H5</td><td>Real sensors and PWM to ESCs on the bench, props off</td><td>Sensor rates and noise in spec; motor order and direction correct; failsafes fire</td><td>Phases 6–7</td></tr>
+    <tr><td>H6</td><td>Tethered, props on, then free flight</td><td>Hover on the tether with clean logs before any untethered flight</td><td>After Phase 7</td></tr>
+  </table></div>
+  <p>Safety rules from H3 on: props stay off until H5 passes. <code>board_reset</code> must restart only hart 1 (via HSS) or be disabled before H6, because resetting the chip in flight also kills Linux.</p>
+</section>
+
+<section>
+  <span class="eyebrow">Verification</span>
+  <h2>Checklist</h2>
+  <ul class="box">
+    <li>Builds with no warnings from our files; both memory regions fit</li>
+    <li>Each chip-layer file diffed against its <code>stm32_common</code> original; every difference explained in a comment or the commit message</li>
+    <li><code>ver all</code> names the board, SoC ID <code>MPFS</code>, NuttX and PX4 versions</li>
+    <li><code>tests hrt</code> passes; <code>perf latency</code> histogram recorded; HRT rate matches Linux <code>CLOCK_MONOTONIC</code></li>
+    <li><code>uorb top</code>, <code>work_queue status</code>, <code>top</code> healthy; <code>param set</code>/<code>show</code> work on tmpfs</li>
+    <li>Linux boots on harts 2–4; <code>hartcheck</code>, <code>rpmsg_ping</code>, <code>rpmsg_test.py 500</code> pass</li>
+    <li>SIH: EKF2 converges; arm, take off to 2.5 m, hold 30 s, land, disarm</li>
+    <li><code>/dev/ttyRPMSG0</code> on Linux; HEARTBEAT and ATTITUDE without gaps for 60 s; Linux commands takeoff</li>
+    <li>10-minute run: no RCU stall, hard fault or EKF reset</li>
+    <li>Hover holds under <code>stress-ng</code> on Linux and through a Linux panic</li>
+    <li>The same test scripts pass with <code>--target board</code> (H1–H4, once the power supply arrives)</li>
+  </ul>
+</section>
+
+<section>
+  <span class="eyebrow">Risks</span>
+  <h2>Risks and open questions</h2>
+  <div class="tbl"><table>
+    <tr><th>Risk</th><th>Why it matters</th><th>Plan</th></tr>
+    <tr><td>First 64-bit NuttX target in PX4</td><td>SITL shows <code>src/</code> is 64-bit clean, but <code>platforms/nuttx/src/px4/common</code> has only run on 32-bit chips</td><td>Build with pointer/int cast warnings as errors; fix with <code>uintptr_t</code> in <code>sw/px4-patches/</code></td></tr>
+    <tr><td>HRT compare on a separate timer</td><td>STM32 compares against the counter itself; we load a relative delay, which adds skew</td><td>Measure with <code>perf latency</code> in step 5; fallback is to swap the NuttX tick to MSS Timer 2</td></tr>
+    <tr><td>MSS Timer clock in Renode unknown</td><td>Callouts would fire early or late</td><td>Measure against <code>mtime</code> in step 5; set the scale from that</td></tr>
+    <tr><td>No system-controller service in Renode</td><td><code>mpfs_read_dsn()</code> may time out, leaving no UUID</td><td>Bounded retries, then a fixed ID; the real DSN on the Icicle Kit</td></tr>
+    <tr><td>GCC 15.2 newer than PX4 CI</td><td>New warnings break <code>-Werror</code></td><td>Fix ours; for upstream code, disable only the named warning and list it</td></tr>
+    <tr><td>PX4's NuttX fork older than our 13.1</td><td>rptun and OpenAMP APIs may differ</td><td>Rebase patch 0003 (<code>&lt;debug.h&gt;</code> include); check rptun Kconfig names in step 6</td></tr>
+    <tr><td><code>board_reset</code> resets the whole chip</td><td>On hardware it would reboot Linux too</td><td>Fine in Renode; ask HSS for a hart-1-only restart on the Icicle Kit</td></tr>
+    <tr><td>Linux disturbs PX4 timing</td><td>Harts share L2 and DDR, so a busy Linux can delay the control loop; Renode will not show this</td><td>Isolation checks in step 7; repeat on the board at H4, where the numbers are real</td></tr>
+    <tr><td>Linux can write PX4's memory</td><td>A Linux bug could corrupt the flight stack</td><td>HSS PMP configuration gives Linux no write access outside the shared RPMsg region; verify at H2</td></tr>
+  </table></div>
+  <p>Open questions for you:</p>
+  <ul class="box">
+    <li>Keep the two-level <code>microchip_common/</code> + <code>mpfs/</code> layout (recommended, matches STM32), or one flat <code>mpfs/</code> folder?</li>
+    <li>Board name: <code>chipwings/mpfs-hart1</code>, or a name matching the team paper?</li>
+    <li>Keep the Phase 4 NSH examples (<code>cw_timer</code>, <code>cw_rpmsg_echo</code> …) in the PX4 image, or drop them?</li>
+  </ul>
+</section>
+
+<section>
+  <span class="eyebrow">Method</span>
+  <h2>How to port PX4 to any new chip</h2>
+  <ol>
+    <li><b>Read the project's own guidance first:</b> <code>docs/en/hardware/porting_guide*.md</code>, <code>AGENTS.md</code>, and <code>.github/instructions/*</code> for <code>boards/**</code> and <code>platforms/**</code>.</li>
+    <li><b>Prove the OS alone first.</b> We did that in Phases 1–4. Never debug the RTOS and the flight stack together.</li>
+    <li><b>Take the native port as the model.</b> For PX4 that is STM32: it defines what the layer is supposed to contain and how it is organized. Small community ports show only what is enough to boot. Read vendor forks only to confirm an approach.</li>
+    <li><b>Map every hook before writing one.</b> List each piece of the native layer with your chip's equivalent, now or later. This catches missing hardware (a compare channel, a unique ID) at design time.</li>
+    <li><b>Let the linker write the to-do list.</b> Wire detection and an empty layer, build, then implement exactly the undefined symbols.</li>
+    <li><b>Timer first, tested hardest</b>, with the native port's latency instrumentation kept.</li>
+    <li><b>Diff against the reference.</b> Each ported file should differ from its native original only where the hardware forces it.</li>
+    <li><b>Keep the port outside the upstream tree</b>: own folder, small patches, one apply script.</li>
+    <li><b>Bring up in layers with a check at each</b>: build, shell, built-in tests, simulation on the chip (SIH), then real I/O.</li>
+  </ol>
+</section>
+
+<footer>
+  Sources in <code>sw/px4</code> at 5f429033: <code>platforms/nuttx/src/px4/stm/</code> (reference layer), <code>boards/px4/fmu-v6x/</code> (reference board), <code>platforms/nuttx/cmake/px4_impl_os.cmake</code>, <code>cmake/px4_add_common_flags.cmake</code>, <code>platforms/nuttx/src/px4/common/CMakeLists.txt</code>, <code>platforms/common/include/px4_platform_common/board_common.h</code>, NuttX <code>arch/risc-v/src/mpfs/</code> (<code>mpfs_dsn.c</code>, <code>mpfs_perf.c</code>, <code>mpfs_gpio.c</code>, <code>mpfs_corepwm.c</code>), Renode <code>polarfire-soc.repl</code>. Earlier guides: <a href="https://claude.ai/artifact/JSS6Hm9P15xCk34avAtzqg">NuttX porting</a>, <a href="https://claude.ai/artifact/WAoV543PDTCXK1yH83VrPc">Linux porting</a>.
+</footer>
+
+</div>

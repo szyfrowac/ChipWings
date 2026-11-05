@@ -1,0 +1,152 @@
+// SPDX-License-Identifier: (GPL-2.0 OR MIT)
+/*
+ * Chipwings: Linux side of the PolarFire SoC AMP system, Renode variant.
+ *
+ *   hart 0 (E51)       bootloader, disabled in mpfs.dtsi
+ *   hart 1 (U54_1)     NuttX / PX4: disabled here, Linux must never start it
+ *   harts 2-4 (U54)    Linux SMP
+ *
+ * Built on the SoC description only (mpfs.dtsi), not the full Icicle Kit tree: the Icicle tree enables
+ * PCIe, USB, the system controller and FPGA-fabric IP that Renode does not model, and it maps the
+ * high DDR alias 0x10_2200_0000, which is the same physical memory as NuttX's 0xA200_0000 region.
+ */
+
+/dts-v1/;
+
+#include "mpfs.dtsi"
+#include <dt-bindings/mailbox/miv-ihc.h>
+
+/ {
+	model = "Chipwings PolarFire SoC: Linux on U54 harts 2-4";
+	compatible = "chipwings,mpfs-linux", "microchip,mpfs";
+
+	aliases {
+		serial3 = &mmuart3;
+	};
+
+	chosen {
+		bootargs = "earlycon console=ttyS3,115200";
+		stdout-path = "serial3:115200n8";
+	};
+
+	/* Low cached DDR, 1 GiB (the size Renode models at 0x80000000) */
+	memory@80000000 {
+		device_type = "memory";
+		reg = <0x0 0x80000000 0x0 0x40000000>;
+	};
+
+	reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		/*
+		 * 0xA2000000-0xA403FFFF belongs to NuttX on hart 1 and to RPMsg; Linux maps none of it.
+		 * NuttX side: sw/configs/nsh-rpmsg-hart1/ld.script and CONFIG_MPFS_CH1_VRING*_ADDR.
+		 */
+
+		/* NuttX code (2 MiB) and RAM (1 MiB) */
+		nuttx: nuttx@a2000000 {
+			reg = <0x0 0xa2000000 0x0 0x300000>;
+			no-map;
+		};
+
+		/* RPMsg resource table, filled in by NuttX (g_shmem); remoteproc attaches through it */
+		rsctable: rsc-table@a2300000 {
+			reg = <0x0 0xa2300000 0x0 0x1000>;
+			no-map;
+		};
+
+		nuttx_spare0: nuttx-spare@a2301000 {
+			reg = <0x0 0xa2301000 0x0 0xff000>;
+			no-map;
+		};
+
+		/* Virtqueues; addresses fixed by the NuttX resource table */
+		vdev0vring0: vdev0vring0@a2400000 {
+			reg = <0x0 0xa2400000 0x0 0x8000>;
+			no-map;
+		};
+
+		vdev0vring1: vdev0vring1@a2408000 {
+			reg = <0x0 0xa2408000 0x0 0x8000>;
+			no-map;
+		};
+
+		/* RPMsg buffers, 512 x 512 bytes, allocated by Linux */
+		vdev0buffer: vdev0buffer@a2410000 {
+			compatible = "shared-dma-pool";
+			reg = <0x0 0xa2410000 0x0 0x40000>;
+			no-map;
+		};
+
+		nuttx_spare1: nuttx-spare@a2450000 {
+			reg = <0x0 0xa2450000 0x0 0x1bf0000>;
+			no-map;
+		};
+	};
+
+	/*
+	 * Mi-V IHC (fabric IP at 0x50000000), reached through the OpenSBI vendor extension
+	 * (sw/br2-chipwings/patches/opensbi). Hart 2 is the Linux context hart; its IHCIA
+	 * output is PLIC source 179.
+	 */
+	ihc: mailbox {
+		compatible = "microchip,miv-ihc";
+		interrupt-parent = <&plic>;
+		interrupts = <IHC_HART2_INT>;
+		microchip,miv-ihc-remote-context-id = <IHC_CONTEXT_B>;
+		#mbox-cells = <1>;
+	};
+
+	/* NuttX on hart 1, already running when Linux boots: remoteproc attaches */
+	remoteproc-nuttx {
+		compatible = "microchip,miv-remoteproc";
+		memory-region = <&vdev0buffer>, <&rsctable>, <&vdev0vring0>, <&vdev0vring1>;
+		mboxes = <&ihc 0>;
+	};
+};
+
+&cpu1 {
+	status = "disabled";
+};
+
+/*
+ * mpfs.dtsi gives the E51 no CLINT interrupts (0xffffffff). Generic OpenSBI derives "first hart" of the
+ * CLINT from the harts that have M-mode soft/timer interrupts listed, so it took slot 0 to be hart 1 and
+ * every hart used the next hart's msip/mtimecmp: hart 2 armed hart 1's (NuttX's) timer and never cleared
+ * its own IPI. List the E51's real slot-0 interrupts so slot N = hart N.
+ */
+&clint {
+	interrupts-extended = <&cpu0_intc 3>, <&cpu0_intc 7>,
+			      <&cpu1_intc 3>, <&cpu1_intc 7>,
+			      <&cpu2_intc 3>, <&cpu2_intc 7>,
+			      <&cpu3_intc 3>, <&cpu3_intc 7>,
+			      <&cpu4_intc 3>, <&cpu4_intc 7>;
+};
+
+&refclk {
+	clock-frequency = <125000000>;
+};
+
+/*
+ * Renode has no model of the MSS PLL behind the clkcfg driver (0x3E001000): its rates come out as zero
+ * divisors, and the driver's reset controller (SUBBLK_RESET_CR, 0x20002088) put MMUART3 into reset early
+ * in boot, which hung the console. Keep Linux's hands off the clock and reset registers in Renode; on the
+ * Icicle Kit, HSS enables the clocks and releases the resets before Linux starts.
+ */
+&clkcfg {
+	status = "disabled";
+};
+
+/* Needs the system controller's mailbox, which Renode does not model */
+&syscontroller {
+	status = "disabled";
+};
+
+/* Linux console: fixed 150 MHz (the Icicle Kit's APB clock) instead of <&clkcfg CLK_MMUART3> */
+&mmuart3 {
+	/delete-property/ clocks;
+	clock-frequency = <150000000>;
+	status = "okay";
+};

@@ -1,0 +1,10 @@
+include $(APPDIR)/Make.defs
+
+PROGNAME  = cwinit
+PRIORITY  = SCHED_PRIORITY_DEFAULT
+STACKSIZE = $(CONFIG_DEFAULT_TASK_STACKSIZE)
+MODULE    = $(CONFIG_CHIPWINGS_CWINIT)
+
+MAINSRC = cwinit_main.c
+
+include $(APPDIR)/Application.mk

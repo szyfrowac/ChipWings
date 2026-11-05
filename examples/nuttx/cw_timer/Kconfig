@@ -1,0 +1,4 @@
+config CW_EXAMPLE_TIMER
+	tristate "cw_timer: periodic wake-up jitter test"
+	default n
+

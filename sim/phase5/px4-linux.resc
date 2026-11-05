@@ -1,0 +1,73 @@
+# Phase 5, step 6: PX4 on U54 hart 1 (flight control) and Linux SMP on U54 harts 2-4 (mission
+# computer), RPMsg between them as in Phase 4 (sim/phase4/rpmsg.resc), with px4.elf in place of the
+# NSH image. Virtqueues in shared DDR, notifications through the Mi-V IHC (sim/peripherals/MiV_IHC.cs).
+# Linux reaches the IHC through the Microchip SBI extension in our OpenSBI (sw/br2-chipwings/patches/opensbi).
+# The E51 is held halted (HSS's job on the board).
+#
+#   0x80000000  OpenSBI fw_jump (generic platform), harts 2-4
+#   0x80200000  Linux Image with the Buildroot rootfs as initramfs
+#   0x8A000000  Linux device tree; a1 points harts 2-4 at it
+#   0xA2300000  RPMsg resource table (NuttX g_shmem in px4.elf)
+#   0xA2400000  vrings + RPMsg buffers
+#   0xA2450000  PX4 (boards/chipwings/mpfs-hart1), hart 1; code at 0xA2450000, RAM at 0xA3050000;
+#               all of 0xA2000000-0xA403FFFF is reserved no-map in the Linux device tree
+#   0x50000000  Mi-V IHC; hart 1 -> PLIC 180, hart 2 -> PLIC 179
+#
+# Build:  sw/build-px4.sh && sw/build-linux.sh
+# Run:    sim/phase5/run.sh [gui|headless] linux     (the script does not call `start`; run.sh does)
+# Consoles (also logged to logs/):
+#   PX4 NSH    MMUART1 -> telnet localhost $nshport   (default 33457)
+#   Linux      MMUART3 -> telnet localhost $linuxport (default 33458), root/root
+
+$px4?=$ORIGIN/../../sw/out/px4/chipwings_mpfs-hart1_default.elf
+$images?=$ORIGIN/../../sw/br2-out/images
+$opensbi?=$images/fw_jump.elf
+$kernel?=$images/Image
+$dtb?=$images/chipwings-mpfs-linux.dtb
+$nshport?=33457
+$linuxport?=33458
+$nshlog?=$ORIGIN/logs/px4-mmuart1.log
+$linuxlog?=$ORIGIN/logs/linux-mmuart3.log
+
+# Our platform = stock polarfire-soc.repl + interrupt-safe harts and CLINT + Mi-V IHC (sim/platforms/chipwings-mpfs.repl)
+include $ORIGIN/../peripherals/SafeIrqRiscV64.cs
+include $ORIGIN/../peripherals/SafeIpiCoreLevelInterruptor.cs
+include $ORIGIN/../peripherals/MiV_IHC.cs
+
+using sysbus
+mach create "uav"
+machine LoadPlatformDescription $ORIGIN/../platforms/chipwings-mpfs.repl
+
+# Errors only; the PolarFire model is very chatty at WARNING level.
+logLevel 3
+
+# Harts see each other's (and the peripherals') events only at time-quantum boundaries. At the default
+# 100 us, PX4's HRT callouts ran up to 100 us late whenever Linux idled (measured: 22% in the 51-100 us
+# bucket of perf latency, none with PX4 alone; at 10 us nothing was later than 20 us). Hardware has no such
+# floor. 10 us keeps the control loops' timing close to real; the idle real-time ratio stays ~1.
+emulation SetGlobalQuantum "0.00001"
+
+
+e51 IsHalted true
+
+macro reset
+"""
+    sysbus LoadELF $px4 false u54_1
+    sysbus LoadELF $opensbi false u54_2
+    sysbus LoadBinary $kernel 0x80200000
+    sysbus LoadBinary $dtb 0x8a000000
+    u54_3 PC 0x80000000
+    u54_4 PC 0x80000000
+    u54_2 SetRegisterUlong 11 0x8a000000
+    u54_3 SetRegisterUlong 11 0x8a000000
+    u54_4 SetRegisterUlong 11 0x8a000000
+"""
+runMacro $reset
+
+mmuart1 CreateFileBackend $nshlog true
+emulation CreateServerSocketTerminal $nshport "nsh" false
+connector Connect mmuart1 nsh
+
+mmuart3 CreateFileBackend $linuxlog true
+emulation CreateServerSocketTerminal $linuxport "linux" false
+connector Connect mmuart3 linux

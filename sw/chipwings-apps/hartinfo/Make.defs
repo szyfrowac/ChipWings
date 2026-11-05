@@ -1,0 +1,7 @@
+############################################################################
+# chipwings-apps/hartinfo/Make.defs
+############################################################################
+
+ifneq ($(CONFIG_CHIPWINGS_HARTINFO),)
+CONFIGURED_APPS += $(APPDIR)/chipwings/hartinfo
+endif

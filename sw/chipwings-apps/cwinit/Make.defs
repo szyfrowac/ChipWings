@@ -1,0 +1,3 @@
+ifneq ($(CONFIG_CHIPWINGS_CWINIT),)
+CONFIGURED_APPS += $(APPDIR)/chipwings/cwinit
+endif

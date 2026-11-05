@@ -1,0 +1,13 @@
+include $(APPDIR)/Make.defs
+
+PROGNAME  = cw_timer
+PRIORITY  = SCHED_PRIORITY_DEFAULT
+STACKSIZE = $(CONFIG_DEFAULT_TASK_STACKSIZE)
+MODULE    = $(CONFIG_CW_EXAMPLE_TIMER)
+
+# Shared NuttX <-> Linux message formats (examples/common)
+CFLAGS += ${INCDIR_PREFIX}$(APPDIR)/cwexamples/../common
+
+MAINSRC = cw_timer_main.c
+
+include $(APPDIR)/Application.mk

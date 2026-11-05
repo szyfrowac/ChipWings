@@ -1,0 +1,66 @@
+# Phase 4: AMP with RPMsg. NuttX on U54 hart 1 (flight control) and Linux SMP on U54 harts 2-4
+# (mission computer) talk over RPMsg: virtqueues in shared DDR, notifications through the Mi-V IHC
+# (sim/peripherals/MiV_IHC.cs, at 0x50000000 as in the Icicle Kit reference design).
+# Linux reaches the IHC through the Microchip SBI extension in our OpenSBI (sw/br2-chipwings/patches/opensbi).
+# The E51 is held halted (HSS's job on the board).
+#
+#   0x80000000  OpenSBI fw_jump (generic platform), harts 2-4
+#   0x80200000  Linux Image with the Buildroot rootfs as initramfs
+#   0x8A000000  Linux device tree; a1 points harts 2-4 at it
+#   0xA2000000  NuttX (sw/configs/nsh-rpmsg-hart1), hart 1; reserved no-map in the Linux device tree
+#   0xA2300000  RPMsg resource table (NuttX g_shmem)
+#   0xA2400000  vrings + RPMsg buffers
+#   0x50000000  Mi-V IHC; hart 1 -> PLIC 180, hart 2 -> PLIC 179
+#
+# Build:  sw/build-nuttx.sh nsh-rpmsg-hart1 && sw/build-linux.sh
+# Run:    sim/phase4/run.sh [gui|headless]     (the script does not call `start`; run.sh does)
+# Consoles (also logged to logs/):
+#   NuttX NSH  MMUART1 -> telnet localhost $nshport   (default 33457)
+#   Linux      MMUART3 -> telnet localhost $linuxport (default 33458), root/root
+
+$nuttx?=$ORIGIN/../../sw/out/nsh-rpmsg-hart1/nuttx
+$images?=$ORIGIN/../../sw/br2-out/images
+$opensbi?=$images/fw_jump.elf
+$kernel?=$images/Image
+$dtb?=$images/chipwings-mpfs-linux.dtb
+$nshport?=33457
+$linuxport?=33458
+$nshlog?=$ORIGIN/logs/nuttx-mmuart1.log
+$linuxlog?=$ORIGIN/logs/linux-mmuart3.log
+
+# Our platform = stock polarfire-soc.repl + interrupt-safe harts and CLINT + Mi-V IHC (sim/platforms/chipwings-mpfs.repl)
+include $ORIGIN/../peripherals/SafeIrqRiscV64.cs
+include $ORIGIN/../peripherals/SafeIpiCoreLevelInterruptor.cs
+include $ORIGIN/../peripherals/MiV_IHC.cs
+
+using sysbus
+mach create "uav"
+machine LoadPlatformDescription $ORIGIN/../platforms/chipwings-mpfs.repl
+
+# Errors only; the PolarFire model is very chatty at WARNING level.
+logLevel 3
+
+
+e51 IsHalted true
+
+macro reset
+"""
+    sysbus LoadELF $nuttx false u54_1
+    sysbus LoadELF $opensbi false u54_2
+    sysbus LoadBinary $kernel 0x80200000
+    sysbus LoadBinary $dtb 0x8a000000
+    u54_3 PC 0x80000000
+    u54_4 PC 0x80000000
+    u54_2 SetRegisterUlong 11 0x8a000000
+    u54_3 SetRegisterUlong 11 0x8a000000
+    u54_4 SetRegisterUlong 11 0x8a000000
+"""
+runMacro $reset
+
+mmuart1 CreateFileBackend $nshlog true
+emulation CreateServerSocketTerminal $nshport "nsh" false
+connector Connect mmuart1 nsh
+
+mmuart3 CreateFileBackend $linuxlog true
+emulation CreateServerSocketTerminal $linuxport "linux" false
+connector Connect mmuart3 linux

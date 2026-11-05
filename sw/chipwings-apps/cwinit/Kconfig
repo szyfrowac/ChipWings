@@ -1,0 +1,19 @@
+config CHIPWINGS_CWINIT
+	tristate "cwinit: Chipwings start-up (RPMsg link to Linux, then NSH)"
+	default n
+	depends on SYSTEM_NSH
+	---help---
+		Start-up entry point for the flight-control core. Set
+		CONFIG_INIT_ENTRYPOINT="cwinit_main". It starts the remoteproc
+		tunnel to Linux (RPTUNIOC_START on /dev/rptun/<cpuname>), which
+		fills in the RPMsg resource table before Linux attaches, and then
+		runs NSH as usual.
+
+if CHIPWINGS_CWINIT
+
+config CHIPWINGS_CWINIT_RPTUN
+	string "rptun device to start"
+	default "/dev/rptun/mpfsihc"
+	depends on RPTUN
+
+endif

@@ -1,0 +1,49 @@
+# Chipwings: Linux for U54 harts 2-4 of the PolarFire SoC (Phase 2).
+# Based on Buildroot's microchip_mpfs_icicle_defconfig (same linux4microchip kernel as the Icicle Kit),
+# but boots straight from OpenSBI with an initramfs, so Renode needs no HSS, U-Boot or SD image.
+#
+#   make -C sw/buildroot O=$PWD/sw/br2-out BR2_EXTERNAL=$PWD/sw/br2-chipwings chipwings_mpfs_linux_defconfig
+#   make -C sw/br2-out
+
+# Architecture: rv64gc, lp64d
+BR2_riscv=y
+BR2_RISCV_ISA_RVC=y
+
+# Prebuilt Bootlin glibc toolchain instead of building GCC
+BR2_TOOLCHAIN_EXTERNAL=y
+BR2_TOOLCHAIN_EXTERNAL_BOOTLIN=y
+BR2_TOOLCHAIN_EXTERNAL_BOOTLIN_RISCV64_LP64D_GLIBC_STABLE=y
+
+BR2_GLOBAL_PATCH_DIR="board/microchip/mpfs_icicle/patches $(BR2_EXTERNAL_CHIPWINGS_PATH)/patches"
+BR2_DOWNLOAD_FORCE_CHECK_HASHES=y
+
+# System: console on MMUART3 (ttyS3); MMUART1 belongs to NuttX
+BR2_TARGET_GENERIC_HOSTNAME="chipwings"
+BR2_TARGET_GENERIC_ISSUE="Chipwings Linux (U54 harts 2-4)"
+BR2_TARGET_GENERIC_ROOT_PASSWD="root"
+BR2_TARGET_GENERIC_GETTY_PORT="ttyS3"
+
+# Kernel: linux4microchip, as in microchip_mpfs_icicle_defconfig, with our device tree
+BR2_LINUX_KERNEL=y
+BR2_LINUX_KERNEL_CUSTOM_TARBALL=y
+BR2_LINUX_KERNEL_CUSTOM_TARBALL_LOCATION="$(call github,linux4microchip,linux,linux4microchip+fpga-2025.10)/linux-linux4microchip+fpga-2025.10.tar.gz"
+BR2_LINUX_KERNEL_DEFCONFIG="mpfs"
+BR2_LINUX_KERNEL_CONFIG_FRAGMENT_FILES="board/microchip/mpfs_icicle/linux.fragment $(BR2_EXTERNAL_CHIPWINGS_PATH)/board/mpfs-linux/linux.fragment"
+BR2_LINUX_KERNEL_DTS_SUPPORT=y
+# Copied into the kernel tree as arch/riscv/boot/dts/microchip/ (RISC-V only builds DTBs in vendor dirs)
+BR2_LINUX_KERNEL_CUSTOM_DTS_DIR="$(BR2_EXTERNAL_CHIPWINGS_PATH)/board/mpfs-linux/dts"
+
+# Root filesystem built into the kernel image
+BR2_TARGET_ROOTFS_CPIO=y
+BR2_TARGET_ROOTFS_INITRAMFS=y
+# BR2_TARGET_ROOTFS_TAR is not set
+
+# OpenSBI (generic platform) runs on harts 2-4 and starts the kernel
+BR2_TARGET_OPENSBI=y
+BR2_TARGET_OPENSBI_PLAT="generic"
+# fw_jump linked at 0x80000000 (generic defaults to 0x0) starts the kernel at 0x80200000 and passes it the device tree at 0x8A000000
+# (Renode loads the DTB there and sets a1 to it on harts 2-4).
+BR2_TARGET_OPENSBI_ADDITIONAL_VARIABLES="FW_TEXT_START=0x80000000 FW_JUMP_FDT_ADDR=0x8a000000"
+
+# Test programs from examples/linux (hartcheck, rpmsg_ping, rpmsg_echo, rpmsg_imu)
+BR2_PACKAGE_CHIPWINGS_EXAMPLES=y

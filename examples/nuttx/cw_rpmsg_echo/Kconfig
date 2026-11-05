@@ -1,0 +1,4 @@
+config CW_EXAMPLE_RPMSG_ECHO
+	tristate "cw_rpmsg_echo: RPMsg echo endpoint cw-echo for Linux"
+	default n
+	depends on RPTUN

@@ -1,0 +1,293 @@
+From: Chipwings
+Subject: [PATCH] platform: generic: add Microchip PolarFire SoC Mi-V IHC SBI extension
+
+Provide the Microchip vendor SBI extension (0x09000029) that HSS implements on
+the Icicle Kit, so the Linux miv-ihc mailbox and miv-remoteproc drivers work
+when generic OpenSBI is started directly on the Linux harts (Renode, no HSS).
+
+diff -Naur a/platform/generic/microchip/mpfs_ihc.c b/platform/generic/microchip/mpfs_ihc.c
+--- a/platform/generic/microchip/mpfs_ihc.c	1970-01-01 05:30:00.000000000 +0530
++++ b/platform/generic/microchip/mpfs_ihc.c	2026-10-22 12:00:26.507327128 +0530
+@@ -0,0 +1,270 @@
++/*
++ * SPDX-License-Identifier: BSD-2-Clause
++ *
++ * Microchip PolarFire SoC: Mi-V Inter-Hart Communication (IHC v1) SBI vendor
++ * extension, as provided by Microchip's HSS on the Icicle Kit and used by the
++ * Linux "microchip,miv-ihc" mailbox and "microchip,miv-remoteproc" drivers.
++ *
++ * Chipwings runs generic OpenSBI on the Linux harts (2-4) without HSS, so this
++ * module provides the same calls.  Ported from HSS services/opensbi/
++ * opensbi_ihc_ecall.c and baremetal/drivers/fpga_ip/miv_ihc/miv_ihc.c (MIT).
++ *
++ *   context A = the Linux side: the lowest hart OpenSBI runs on (hart 2)
++ *   context B = the remote (NuttX): the lowest U54 OpenSBI does not run on (hart 1)
++ *
++ * The IHC hardware is a fabric IP at 0x50000000 (Icicle Kit reference design).
++ * For local hart l and remote hart r the channel registers are at
++ * 0x50000000 + 0x500 * l + 0x100 * (r < l ? r : r - 1), the per-hart
++ * aggregator (IHCIA) at 0x50000000 + 0x500 * l + 0x400.
++ */
++
++#include <platform_override.h>
++#include <sbi/riscv_asm.h>
++#include <sbi/riscv_io.h>
++#include <sbi/sbi_console.h>
++#include <sbi/sbi_domain.h>
++#include <sbi/sbi_ecall.h>
++#include <sbi/sbi_error.h>
++#include <sbi/sbi_scratch.h>
++#include <sbi/sbi_string.h>
++#include <sbi/sbi_trap.h>
++#include <sbi_utils/fdt/fdt_driver.h>
++
++#define SBI_EXT_MICROCHIP_TECHNOLOGY	(0x09000000UL | 0x029UL)
++
++/* Function IDs (Linux include/linux/mailbox/miv_ihc.h) */
++enum {
++	SBI_EXT_IHC_INIT,
++	SBI_EXT_IHC_TX,
++	SBI_EXT_IHC_RX,
++	SBI_EXT_RPROC_STATE,
++	SBI_EXT_RPROC_START,
++	SBI_EXT_RPROC_STOP,
++};
++
++/* Remote context IDs (Linux include/dt-bindings/mailbox/miv-ihc.h) */
++#define IHC_CONTEXT_A			5
++#define IHC_CONTEXT_B			6
++
++#define RPROC_CONTEXT_RUNNING		1
++
++#define IHC_BASE			0x50000000UL
++#define IHC_HART_STRIDE			0x500UL
++#define IHC_NUM_HARTS			5
++#define IHC_MAX_MESSAGE_SIZE		4
++
++#define IHC_CTRL			0x04
++#define IHC_MSG_SIZE			0x0c
++#define IHC_MSG_IN			0x20
++#define IHC_MSG_OUT			0x30
++#define IHCIA_INT_EN			0x04
++#define IHCIA_MSG_AVAIL			0x08
++
++#define RMP_MESSAGE_PRESENT		(1U << 0)
++#define MP_MESSAGE_PRESENT		(1U << 1)
++#define MPIE_EN				(1U << 2)
++#define ACK_INT				(1U << 3)
++#define ACK_CLR				(1U << 4)
++#define ACKIE_EN			(1U << 5)
++
++/*
++ * MP mirrors the remote's RMP, and writing 0 to it consumes the remote's
++ * message. Control writes that do not mean to consume a message write MP as 1:
++ * a message that arrives between the read and the write would otherwise be
++ * consumed unread and the remote's notification lost.
++ */
++#define MP_KEEP				MP_MESSAGE_PRESENT
++
++#define IHC_TX_RETRIES			10000
++
++/* Linux struct ihc_sbi_msg */
++enum {
++	IHC_MP_IRQ,
++	IHC_ACK_IRQ,
++};
++
++struct ihc_sbi_msg {
++	u32 msg[IHC_MAX_MESSAGE_SIZE];
++	u8 irq_type;
++};
++
++static u32 ctx_a_hart = -1U;
++static u32 ctx_b_hart = -1U;
++
++static volatile void *ihc_chan(u32 l, u32 r, unsigned long reg)
++{
++	return (volatile void *)(IHC_BASE + IHC_HART_STRIDE * l +
++				 0x100UL * (r < l ? r : r - 1) + reg);
++}
++
++static volatile void *ihc_ia(u32 l, unsigned long reg)
++{
++	return (volatile void *)(IHC_BASE + IHC_HART_STRIDE * l + 0x400UL + reg);
++}
++
++static bool ihc_buf_ok(unsigned long addr, unsigned long size,
++		       unsigned long access)
++{
++	return addr && sbi_domain_check_addr_range(sbi_domain_thishart_ptr(),
++						   addr, size, PRV_S, access);
++}
++
++static u32 ihc_msg_words(u32 l, u32 r)
++{
++	u32 size = readl(ihc_chan(l, r, IHC_MSG_SIZE));
++
++	return size > IHC_MAX_MESSAGE_SIZE ? IHC_MAX_MESSAGE_SIZE : size;
++}
++
++static int ihc_init(void)
++{
++	u32 a = ctx_a_hart, b = ctx_b_hart;
++
++	/* IHC_local_context_init + IHC_local_remote_config(a, b, MPIE, ACKIE) */
++	writel(0, ihc_chan(a, b, IHC_CTRL));
++	writel((1U << (2 * b)) | (1U << (2 * b + 1)), ihc_ia(a, IHCIA_INT_EN));
++	writel(MPIE_EN | ACKIE_EN | ACK_CLR, ihc_chan(a, b, IHC_CTRL));
++
++	return 0;
++}
++
++static int ihc_tx(unsigned long addr)
++{
++	u32 a = ctx_a_hart, b = ctx_b_hart, words, ctrl, i;
++	const u32 *msg = (const u32 *)addr;
++	int retries = IHC_TX_RETRIES;
++
++	words = ihc_msg_words(a, b);
++	if (!ihc_buf_ok(addr, words * sizeof(u32), SBI_DOMAIN_READ))
++		return SBI_EINVALID_ADDR;
++
++	/* Wait until our last message was taken and our last ack was seen */
++	do {
++		ctrl = readl(ihc_chan(a, b, IHC_CTRL));
++	} while ((ctrl & (RMP_MESSAGE_PRESENT | ACK_INT)) && --retries);
++	if (ctrl & (RMP_MESSAGE_PRESENT | ACK_INT))
++		return SBI_EDENIED;
++
++	for (i = 0; i < words; i++)
++		writel(msg[i], ihc_chan(a, b, IHC_MSG_OUT + 4 * i));
++	writel(ctrl | RMP_MESSAGE_PRESENT | MP_KEEP, ihc_chan(a, b, IHC_CTRL));
++
++	return 0;
++}
++
++static int ihc_rx(unsigned long addr)
++{
++	u32 a = ctx_a_hart, b = ctx_b_hart, avail, ctrl, words, i;
++	struct ihc_sbi_msg *out = (struct ihc_sbi_msg *)addr;
++
++	if (!ihc_buf_ok(addr, sizeof(*out), SBI_DOMAIN_READ | SBI_DOMAIN_WRITE))
++		return SBI_EINVALID_ADDR;
++
++	/*
++	 * One event per call, ack first as in HSS. Anything still pending keeps
++	 * the (level) IHCIA interrupt asserted, so Linux calls again.
++	 */
++	avail = readl(ihc_ia(a, IHCIA_MSG_AVAIL));
++	ctrl = readl(ihc_chan(a, b, IHC_CTRL));
++
++	if (avail & (1U << (2 * b + 1))) {
++		out->irq_type = IHC_ACK_IRQ;
++		writel((ctrl & ~ACK_CLR) | MP_KEEP, ihc_chan(a, b, IHC_CTRL));
++	} else if (avail & (1U << (2 * b))) {
++		words = ihc_msg_words(a, b);
++		for (i = 0; i < IHC_MAX_MESSAGE_SIZE; i++)
++			out->msg[i] = i < words ?
++				readl(ihc_chan(a, b, IHC_MSG_IN + 4 * i)) : 0;
++		out->irq_type = IHC_MP_IRQ;
++		/* Consume the message and ack it */
++		ctrl &= ~MP_MESSAGE_PRESENT;
++		if (ctrl & ACKIE_EN)
++			ctrl |= ACK_INT;
++		writel(ctrl, ihc_chan(a, b, IHC_CTRL));
++	} else {
++		return SBI_ENOENT;
++	}
++
++	return 0;
++}
++
++static int mpfs_ihc_ecall_handler(unsigned long extid, unsigned long funcid,
++				  struct sbi_trap_regs *regs,
++				  struct sbi_ecall_return *out)
++{
++	if (regs->a0 != IHC_CONTEXT_B)
++		return SBI_EINVAL;
++
++	switch (funcid) {
++	case SBI_EXT_IHC_INIT:
++		return ihc_init();
++	case SBI_EXT_IHC_TX:
++		return ihc_tx(regs->a1);
++	case SBI_EXT_IHC_RX:
++		return ihc_rx(regs->a1);
++	case SBI_EXT_RPROC_STATE:
++		/* The remote is loaded and started before Linux (no HSS here) */
++		out->value = RPROC_CONTEXT_RUNNING;
++		return 0;
++	default:
++		/* RPROC_START / RPROC_STOP: hart 1 is not ours to start or stop */
++		return SBI_ENOTSUPP;
++	}
++}
++
++static struct sbi_ecall_extension ecall_mpfs_ihc = {
++	.name		= "mpfsihc",
++	.extid_start	= SBI_EXT_MICROCHIP_TECHNOLOGY,
++	.extid_end	= SBI_EXT_MICROCHIP_TECHNOLOGY,
++	.handle		= mpfs_ihc_ecall_handler,
++};
++
++static int mpfs_ihc_final_init(bool cold_boot)
++{
++	u32 h;
++	int rc;
++
++	rc = generic_final_init(cold_boot);
++	if (rc || !cold_boot)
++		return rc;
++
++	/* Hart 0 is the E51 monitor core; the U54s are 1-4 */
++	for (h = 1; h < IHC_NUM_HARTS; h++) {
++		bool ours = sbi_hartindex_valid(sbi_hartid_to_hartindex(h));
++
++		if (ours && ctx_a_hart == -1U)
++			ctx_a_hart = h;
++		else if (!ours && ctx_b_hart == -1U)
++			ctx_b_hart = h;
++	}
++	if (ctx_a_hart == -1U || ctx_b_hart == -1U) {
++		sbi_printf("MPFS IHC: no remote context, extension not registered\n");
++		return 0;
++	}
++
++	rc = sbi_ecall_register_extension(&ecall_mpfs_ihc);
++	if (rc)
++		return rc;
++
++	sbi_printf("MPFS IHC: SBI extension 0x%lx, context A hart %u <-> context B hart %u\n",
++		   SBI_EXT_MICROCHIP_TECHNOLOGY, ctx_a_hart, ctx_b_hart);
++	return 0;
++}
++
++static int mpfs_ihc_platform_init(const void *fdt, int nodeoff,
++				  const struct fdt_match *match)
++{
++	generic_platform_ops.final_init = mpfs_ihc_final_init;
++
++	return 0;
++}
++
++static const struct fdt_match mpfs_ihc_match[] = {
++	{ .compatible = "microchip,mpfs" },
++	{ },
++};
++
++const struct fdt_driver microchip_mpfs_ihc = {
++	.match_table = mpfs_ihc_match,
++	.init = mpfs_ihc_platform_init,
++};
+diff -Naur a/platform/generic/microchip/objects.mk b/platform/generic/microchip/objects.mk
+--- a/platform/generic/microchip/objects.mk	1970-01-01 05:30:00.000000000 +0530
++++ b/platform/generic/microchip/objects.mk	2026-10-22 12:00:26.506327114 +0530
+@@ -0,0 +1,8 @@
++#
++# SPDX-License-Identifier: BSD-2-Clause
++#
++# Microchip PolarFire SoC: Mi-V IHC SBI vendor extension (Chipwings)
++#
++
++carray-platform_override_modules-y += microchip_mpfs_ihc
++platform-objs-y += microchip/mpfs_ihc.o

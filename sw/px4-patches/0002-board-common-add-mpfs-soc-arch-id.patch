@@ -1,0 +1,12 @@
+diff --git a/platforms/common/include/px4_platform_common/board_common.h b/platforms/common/include/px4_platform_common/board_common.h
+index b96379b2..9210f3c7 100644
+--- a/platforms/common/include/px4_platform_common/board_common.h
++++ b/platforms/common/include/px4_platform_common/board_common.h
+@@ -390,6 +390,7 @@ typedef enum PX4_SOC_ARCH_ID_t {
+ 	PX4_SOC_ARCH_ID_NXPS32K146     =  0x0007,
+ 	PX4_SOC_ARCH_ID_NXPS32K344     =  0x0008,
+ 	PX4_SOC_ARCH_ID_NXPIMXRT1176   =  0x0009,
++	PX4_SOC_ARCH_ID_MPFS           =  0x000A,
+ 
+ 	PX4_SOC_ARCH_ID_EAGLE          =  0x1001,
+ 	PX4_SOC_ARCH_ID_QURT           =  0x1002,

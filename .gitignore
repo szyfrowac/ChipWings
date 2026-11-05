@@ -1,0 +1,38 @@
+# External source trees and toolchains
+sw/apps/
+sw/buildroot/
+sw/nuttx/
+sw/px4/
+sw/px4-venv/
+
+# Build outputs and logs
+sw/br2-out/
+sw/out/
+sw/*.log
+sim/images/
+sim/**/logs/
+
+# NuttX in-tree build artifacts in linked app directories
+*.o
+.built
+.depend
+.kconfig
+Make.dep
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# Scratch / tool files
+.playwright-mcp/
+/add_subdirectory*.md
+/Architecture__*.md
+/board_get_mfguid*.md
+/*if(NOT_USE_LD_GOLD).md
+/*list(APPEND_nuttx_userspace.md
+/\*_.md
+/Next__Phase_5*.md
+/platforms_common_include*.md
+/PX4-Autopilot.md
+/\*\*The_bug_fix.\*\*_*.md
+/v1.18.0-beta1*.md

@@ -1,0 +1,7 @@
+config BR2_PACKAGE_CHIPWINGS_EXAMPLES
+	bool "chipwings-examples"
+	depends on BR2_TOOLCHAIN_HAS_THREADS
+	help
+	  Linux-side test programs from the Chipwings examples/ folder:
+	  hartcheck, rpmsg_ping, rpmsg_echo, rpmsg_imu (installed in
+	  /usr/bin). The rpmsg_* programs talk to NuttX on hart 1.

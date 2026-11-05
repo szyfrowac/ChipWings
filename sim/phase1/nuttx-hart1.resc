@@ -1,0 +1,39 @@
+# Phase 1: NuttX (icicle:nsh) alone on U54 hart 1, the flight-control core in the paper.
+# E51 (bootloader) and U54 harts 2-4 (future Linux) are held halted; the ELF is loaded straight into DDR
+# instead of going through HSS.
+#
+# Build:  sw/build-nuttx.sh
+# Run:    sim/phase1/run.sh [gui|headless]     (the script does not call `start`; run.sh does)
+# NSH:    GUI analyzer window, or telnet localhost $nshport, default 33457 (also logged to logs/nuttx-mmuart1.log)
+# Check:  sim/phase1/check-one-core.sh
+
+$nuttx?=$ORIGIN/../../sw/nuttx/nuttx
+$nshport?=33457
+$uartlog?=$ORIGIN/logs/nuttx-mmuart1.log
+
+using sysbus
+mach create "uav"
+machine LoadPlatformDescription @platforms/cpus/polarfire-soc.repl
+
+# Errors only; the PolarFire model is very chatty at WARNING level.
+logLevel 3
+
+# Expect 187 "plic: Trying to complete irq N" errors at boot: NuttX's PLIC init (mpfs_plic.c, "Complete
+# possibly claimed IRQs ... in case of warm reboot") writes every IRQ number to the claim/complete register.
+# Real hardware ignores completes for unclaimed IRQs. They can't be muted per peripheral: ERROR (3) is
+# Renode's highest log level.
+
+e51 IsHalted true
+u54_2 IsHalted true
+u54_3 IsHalted true
+u54_4 IsHalted true
+
+macro reset
+"""
+    sysbus LoadELF $nuttx false u54_1
+"""
+runMacro $reset
+
+mmuart1 CreateFileBackend $uartlog true
+emulation CreateServerSocketTerminal $nshport "nsh" false
+connector Connect mmuart1 nsh

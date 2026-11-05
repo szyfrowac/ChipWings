@@ -1,0 +1,15 @@
+diff --git a/src/systemcmds/param/param.cpp b/src/systemcmds/param/param.cpp
+index 52318a4a..4f981619 100644
+--- a/src/systemcmds/param/param.cpp
++++ b/src/systemcmds/param/param.cpp
+@@ -602,7 +602,9 @@ do_load_or_init(const char *backup_file_name)
+ 
+ 	int fd = -1;
+ 
+-	if (backup_file_name) {
++	/* rcS passes an empty $PARAM_BACKUP_FILE on boards without storage; NuttX
++	 * fails open("") with ENXIO, not ENOENT, so treat it as no backup */
++	if (backup_file_name && backup_file_name[0] != '\0') {
+ 		fd = open(backup_file_name, O_RDONLY);
+ 
+ 		if (fd < 0 && errno != ENOENT) {

@@ -1,0 +1,28 @@
+#
+# For a description of the syntax of this configuration file,
+# see the file kconfig-language.txt in the NuttX tools repository.
+#
+
+config CHIPWINGS_HARTINFO
+	tristate "hartinfo: show which PolarFire SoC hart NuttX runs on"
+	default n
+	---help---
+		Adds the NSH command "hartinfo", which prints the physical hart
+		(mhartid) NuttX is executing on and how many CPUs the scheduler
+		uses. Used to check the AMP core assignment (NuttX on U54_1).
+
+if CHIPWINGS_HARTINFO
+
+config CHIPWINGS_HARTINFO_PROGNAME
+	string "Program name"
+	default "hartinfo"
+
+config CHIPWINGS_HARTINFO_PRIORITY
+	int "hartinfo task priority"
+	default 100
+
+config CHIPWINGS_HARTINFO_STACKSIZE
+	int "hartinfo stack size"
+	default DEFAULT_TASK_STACKSIZE
+
+endif

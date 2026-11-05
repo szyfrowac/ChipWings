@@ -1,0 +1,3 @@
+# Chipwings additions on top of the mpfs defconfig and Microchip's board fragment.
+# Root filesystem is an initramfs built into the kernel (BR2_TARGET_ROOTFS_INITRAMFS).
+CONFIG_BLK_DEV_INITRD=y

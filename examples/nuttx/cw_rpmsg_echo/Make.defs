@@ -1,0 +1,3 @@
+ifneq ($(CONFIG_CW_EXAMPLE_RPMSG_ECHO),)
+CONFIGURED_APPS += $(APPDIR)/cwexamples/cw_rpmsg_echo
+endif

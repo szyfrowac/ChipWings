@@ -1,0 +1,10 @@
+#!/bin/sh
+#
+# Board early init.
+#
+# No SD card and no parameter MTD on hart 1: keep the storage path on a RAM
+# file system. Parameters and logs are lost at reset, which is fine with SIH.
+#
+
+mount -t tmpfs /fs/microsd
+set STORAGE_CHECK no

@@ -1,0 +1,52 @@
+# Phase 2: Linux SMP alone on U54 harts 2-4 (the paper's mission computer).
+# E51 (bootloader) and U54_1 (NuttX) are held halted. Instead of HSS + U-Boot, the images are loaded
+# straight into DDR and the three Linux harts start in OpenSBI:
+#
+#   0x80000000  OpenSBI fw_jump (generic platform)
+#   0x80200000  Linux Image with the Buildroot rootfs as initramfs
+#   0x8A000000  device tree (chipwings-mpfs-linux.dtb); a1 points every hart at it
+#
+# Build:  sw/build-linux.sh
+# Run:    sim/phase2/run.sh [gui|headless]     (the script does not call `start`; run.sh does)
+# Shell:  MMUART3 = ttyS3: GUI terminal window, or telnet localhost $linuxport (default 33458), root/root
+#         also logged to logs/linux-mmuart3.log
+
+$images?=$ORIGIN/../../sw/br2-out/images
+$opensbi?=$images/fw_jump.elf
+$kernel?=$images/Image
+$dtb?=$images/chipwings-mpfs-linux.dtb
+$linuxport?=33458
+$uartlog?=$ORIGIN/logs/linux-mmuart3.log
+
+# Our platform = stock polarfire-soc.repl + interrupt-safe harts and CLINT + Mi-V IHC (sim/platforms/chipwings-mpfs.repl)
+include $ORIGIN/../peripherals/SafeIrqRiscV64.cs
+include $ORIGIN/../peripherals/SafeIpiCoreLevelInterruptor.cs
+include $ORIGIN/../peripherals/MiV_IHC.cs
+
+using sysbus
+mach create "uav"
+machine LoadPlatformDescription $ORIGIN/../platforms/chipwings-mpfs.repl
+
+# Errors only; the PolarFire model is very chatty at WARNING level.
+logLevel 3
+
+
+e51 IsHalted true
+u54_1 IsHalted true
+
+macro reset
+"""
+    sysbus LoadELF $opensbi false u54_2
+    sysbus LoadBinary $kernel 0x80200000
+    sysbus LoadBinary $dtb 0x8a000000
+    u54_3 PC 0x80000000
+    u54_4 PC 0x80000000
+    u54_2 SetRegisterUlong 11 0x8a000000
+    u54_3 SetRegisterUlong 11 0x8a000000
+    u54_4 SetRegisterUlong 11 0x8a000000
+"""
+runMacro $reset
+
+mmuart3 CreateFileBackend $uartlog true
+emulation CreateServerSocketTerminal $linuxport "linux" false
+connector Connect mmuart3 linux

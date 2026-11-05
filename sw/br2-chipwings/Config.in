@@ -1,0 +1,1 @@
+source "$BR2_EXTERNAL_CHIPWINGS_PATH/package/chipwings-examples/Config.in"

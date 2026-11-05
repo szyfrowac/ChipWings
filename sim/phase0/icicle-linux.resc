@@ -1,0 +1,31 @@
+# Phase 0: stock Icicle Kit boot chain (HSS on E51 -> U-Boot -> Linux on U54s), headless.
+# Same E51-bootloader flow the paper uses; later phases replace the payload with NuttX + Linux AMP.
+# Self-contained equivalent of scripts/single-node/icicle-kit.resc using the local images in ../images
+# (including the stock scripts makes Renode re-download their default URLs).
+#
+# Run (from anywhere):  renode --console --disable-gui icicle-linux.resc
+# UART output:          logs/icicle-mmuart0-hss.log, logs/icicle-mmuart1-linux.log
+
+$images=$ORIGIN/../images
+
+using sysbus
+mach create "icicle"
+machine LoadPlatformDescription @platforms/cpus/polarfire-soc.repl
+
+# Errors only on the Renode log; the PolarFire model is very chatty at WARNING level.
+logLevel 3
+
+machine SdCardFromFile $images/icicle-emmc.img mmc 0x100000000 false
+
+macro reset
+"""
+    sysbus LoadELF $images/icicle-hss.elf
+    sysbus LoadBinary $images/icicle-fitImage.fit 0x88300000
+    sysbus LoadSymbolsFrom $images/icicle-vmlinux
+    sysbus LoadSymbolsFrom $images/icicle-u-boot
+"""
+runMacro $reset
+
+mmuart0 CreateFileBackend $ORIGIN/logs/icicle-mmuart0-hss.log true
+mmuart1 CreateFileBackend $ORIGIN/logs/icicle-mmuart1-linux.log true
+start

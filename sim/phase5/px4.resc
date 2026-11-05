@@ -1,0 +1,41 @@
+# Phase 5, step 5: PX4 alone on U54 hart 1. Linux stays off (harts 2-4 halted) until step 6.
+# The E51 is held halted (HSS's job on the board); px4.elf is loaded straight into DDR.
+#
+#   0xA2450000  PX4 code + rodata + .data load image (boards/chipwings/mpfs-hart1 script.ld)
+#   0xA3050000  .data/.bss + NuttX heap
+#   0x20125000  MSS Timer 1 (PLIC 82): HRT deadlines; CLINT mtime is the HRT clock
+#
+# Build:  sw/build-px4.sh
+# Run:    sim/phase5/run.sh [gui|headless]     (the script does not call `start`; run.sh does)
+# NSH:    MMUART1 -> telnet localhost $nshport (default 33457), also logged to logs/px4-mmuart1.log
+
+$px4?=$ORIGIN/../../sw/out/px4/chipwings_mpfs-hart1_default.elf
+$nshport?=33457
+$nshlog?=$ORIGIN/logs/px4-mmuart1.log
+
+# Our platform = stock polarfire-soc.repl + interrupt-safe harts and CLINT + Mi-V IHC (sim/platforms/chipwings-mpfs.repl)
+include $ORIGIN/../peripherals/SafeIrqRiscV64.cs
+include $ORIGIN/../peripherals/SafeIpiCoreLevelInterruptor.cs
+include $ORIGIN/../peripherals/MiV_IHC.cs
+
+using sysbus
+mach create "uav"
+machine LoadPlatformDescription $ORIGIN/../platforms/chipwings-mpfs.repl
+
+# Errors only; the PolarFire model is very chatty at WARNING level.
+logLevel 3
+
+e51 IsHalted true
+u54_2 IsHalted true
+u54_3 IsHalted true
+u54_4 IsHalted true
+
+macro reset
+"""
+    sysbus LoadELF $px4 false u54_1
+"""
+runMacro $reset
+
+mmuart1 CreateFileBackend $nshlog true
+emulation CreateServerSocketTerminal $nshport "nsh" false
+connector Connect mmuart1 nsh

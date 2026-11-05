@@ -1,0 +1,22 @@
+diff --git a/arch/risc-v/src/mpfs/mpfs_timerisr.c b/arch/risc-v/src/mpfs/mpfs_timerisr.c
+index b8f4d984..5ff3519f 100644
+--- a/arch/risc-v/src/mpfs/mpfs_timerisr.c
++++ b/arch/risc-v/src/mpfs/mpfs_timerisr.c
+@@ -64,12 +64,13 @@
+ 
+ void up_timer_initialize(void)
+ {
+-  /* what is our timecmp address for this hart */
+-
+-  uintptr_t hart_id = up_cpu_index();
++  /* Pass the base mtimecmp address: riscv_mtimer adds the per-hart offset
++   * (8 * up_cpu_index()) itself. Adding it here too made hart N program
++   * hart 2N's comparator, so NuttX on U54_1 never got a tick.
++   */
+ 
+   struct oneshot_lowerhalf_s *lower = riscv_mtimer_initialize(
+-    MPFS_CLINT_MTIME, MPFS_CLINT_MTIMECMP0 + hart_id * sizeof(uintptr_t),
++    MPFS_CLINT_MTIME, MPFS_CLINT_MTIMECMP0,
+     RISCV_IRQ_TIMER, MTIMER_FREQ);
+ 
+   DEBUGASSERT(lower);

@@ -1,0 +1,3 @@
+ifneq ($(CONFIG_CW_EXAMPLE_TIMER),)
+CONFIGURED_APPS += $(APPDIR)/cwexamples/cw_timer
+endif

@@ -1,0 +1,18 @@
+# Phase 0 smoke test: stock PolarFire SoC FreeRTOS+lwIP demo, headless; runs 3 s of virtual time and quits.
+# Self-contained equivalent of scripts/single-node/polarfire-soc.resc using the local image in ../images.
+#
+# Run:  renode --console --disable-gui freertos-smoke.resc < /dev/null
+# UART output: logs/freertos-mmuart0.log
+
+using sysbus
+mach create "pse"
+machine LoadPlatformDescription @platforms/cpus/polarfire-soc.repl
+
+# Errors only; at WARNING level this demo writes several GB of log in a few seconds.
+logLevel 3
+
+sysbus LoadELF $ORIGIN/../images/pse-freertos-lwip.elf
+
+mmuart0 CreateFileBackend $ORIGIN/logs/freertos-mmuart0.log true
+emulation RunFor "3"
+q

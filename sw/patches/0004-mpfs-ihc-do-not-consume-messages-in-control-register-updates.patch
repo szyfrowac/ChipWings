@@ -1,0 +1,72 @@
+--- a/arch/risc-v/src/mpfs/mpfs_ihc.c
++++ b/arch/risc-v/src/mpfs/mpfs_ihc.c
+@@ -84,6 +84,14 @@
+ 
+ #define MPFS_RPTUN_CPU_NAME      "mpfsihc"
+ 
++/* MP mirrors the remote's RMP, and writing 0 to it consumes the remote's
++ * message. Every read-modify-write of the control register that does not
++ * mean to consume a message writes MP as 1: otherwise a message that arrives
++ * between the read and the write is consumed unread, and the kick is lost.
++ */
++
++#define MP_KEEP                  MP_MASK
++
+ /* mpfs_rptun_notify() keeps trying for about 10 ms */
+ 
+ #define MPFS_RPTUN_NOTIFY_RETRIES   1000
+@@ -510,7 +518,7 @@
+     }
+ 
+   modifyreg32(MPFS_IHC_CTRL(g_work_arg.mhartid,
+-              g_work_arg.rhartid), 0, ACK_INT);
++              g_work_arg.rhartid), 0, ACK_INT | MP_KEEP);
+ }
+ #endif
+ 
+@@ -578,7 +586,7 @@
+       work_queue(HPWORK, &g_ihc_work, mpfs_ihc_worker, NULL, 0);
+ #else
+       modifyreg32(MPFS_IHC_CTRL(mhartid, rhartid), MP_MASK, 0);
+-      modifyreg32(MPFS_IHC_CTRL(mhartid, rhartid), 0, ACK_INT);
++      modifyreg32(MPFS_IHC_CTRL(mhartid, rhartid), 0, ACK_INT | MP_KEEP);
+ #endif
+     }
+   else
+@@ -586,7 +594,7 @@
+       /* We can send the ACK now and clear the MP */
+ 
+       modifyreg32(MPFS_IHC_CTRL(mhartid, rhartid), MP_MASK, 0);
+-      modifyreg32(MPFS_IHC_CTRL(mhartid, rhartid), 0, ACK_INT);
++      modifyreg32(MPFS_IHC_CTRL(mhartid, rhartid), 0, ACK_INT | MP_KEEP);
+     }
+ }
+ 
+@@ -643,7 +651,7 @@
+           /* Clear the ack */
+ 
+           modifyreg32(MPFS_IHC_CTRL(mhartid, origin_hart),
+-                      ACK_CLR, 0);
++                      ACK_CLR, MP_KEEP);
+         }
+     }
+ }
+@@ -741,7 +749,7 @@
+            MPFS_IHC_INT_EN(hart_to_configure));
+ 
+   modifyreg32(MPFS_IHC_CTRL(hart_to_configure, rhartid), 0, MPIE_EN |
+-                            ACKIE_EN);
++                            ACKIE_EN | MP_KEEP);
+ }
+ 
+ /****************************************************************************
+@@ -821,7 +829,8 @@
+ 
+       /* Set the MP bit. This will notify other of incoming hart message */
+ 
+-      modifyreg32(MPFS_IHC_CTRL(mhartid, rhartid), 0, RMP_MESSAGE_PRESENT);
++      modifyreg32(MPFS_IHC_CTRL(mhartid, rhartid), 0,
++                  RMP_MESSAGE_PRESENT | MP_KEEP);
+     }
+ 
+   return OK;

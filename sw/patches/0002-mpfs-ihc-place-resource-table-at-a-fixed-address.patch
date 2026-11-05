@@ -1,0 +1,31 @@
+diff --git a/arch/risc-v/src/mpfs/mpfs_ihc.c b/arch/risc-v/src/mpfs/mpfs_ihc.c
+index 3d4ed9bf..f0030385 100644
+--- a/arch/risc-v/src/mpfs/mpfs_ihc.c
++++ b/arch/risc-v/src/mpfs/mpfs_ihc.c
+@@ -112,10 +112,16 @@
+  * Private Types
+  ****************************************************************************/
+ 
++/* The resource table comes first and g_shmem lives in its own section, so
++ * the linker script can put the table at a fixed address.  The Linux side
++ * (miv_remoteproc) attaches to the running NuttX by reading the table from
++ * the start of its "rsc-table" reserved-memory region.
++ */
++
+ struct mpfs_rptun_shmem_s
+ {
+-  volatile uintptr_t         base;
+   struct rptun_rsc_s         rsc;
++  volatile uintptr_t         base;
+   bool                       master_up;
+ };
+ 
+@@ -178,7 +184,7 @@ uint8_t unused_filler[0x80000] __attribute__((section(".filler_area")));
+ 
+ static struct rpmsg_endpoint       g_mpgs_echo_ping_ept;
+ static struct mpfs_queue_table_s   g_mpfs_virtqueue_table[VRINGS];
+-static struct mpfs_rptun_shmem_s   g_shmem;
++static struct mpfs_rptun_shmem_s   g_shmem locate_data(".resource_table");
+ static struct rpmsg_device        *g_mpfs_rpmsg_device;
+ static struct rpmsg_virtio_device *g_mpfs_virtio_device;
+ 
