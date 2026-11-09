@@ -1,0 +1,46 @@
+--- a/arch/risc-v/src/mpfs/mpfs_ihc.c
++++ b/arch/risc-v/src/mpfs/mpfs_ihc.c
+@@ -92,9 +92,15 @@
+ 
+ #define MP_KEEP                  MP_MASK
+ 
+-/* mpfs_rptun_notify() keeps trying for about 10 ms */
++/* mpfs_rptun_notify() keeps trying for about 1 ms: long enough for the
++ * remote's interrupt handler to acknowledge the previous kick, short enough
++ * that a peer which never answers (a hung or crashed Linux) does not stall
++ * the sender. Each attempt is a single read of the control register; it used
++ * to spin up to 10000 times on it, which made one failed notification cost
++ * about a second instead of the 10 ms intended here.
++ */
+ 
+-#define MPFS_RPTUN_NOTIFY_RETRIES   1000
++#define MPFS_RPTUN_NOTIFY_RETRIES   100
+ #define MPFS_RPTUN_NOTIFY_DELAY_US  10
+ 
+ /* Vring configuration parameters */
+@@ -774,7 +780,6 @@
+   uint32_t rhartid      = mpfs_ihc_context_to_remote_hart_id(channel);
+   uint32_t message_size = getreg32(MPFS_IHC_MSG_SIZE(mhartid, rhartid));
+   uint32_t ctrl_reg;
+-  uint32_t retries      = 10000;
+ 
+   if (mhartid >= MPFS_NUM_HARTS)
+     {
+@@ -795,13 +800,11 @@
+       return -EINVAL;
+     }
+ 
+-  /* Check if the system is busy.  All we can try is wait. */
++  /* Check if the system is busy. Waiting is the caller's business
++   * (mpfs_rptun_notify() retries with a delay and a bounded budget).
++   */
+ 
+-  do
+-    {
+-      ctrl_reg = getreg32(MPFS_IHC_CTRL(mhartid, rhartid));
+-    }
+-  while ((ctrl_reg & (RMP_MESSAGE_PRESENT)) && --retries);
++  ctrl_reg = getreg32(MPFS_IHC_CTRL(mhartid, rhartid));
+ 
+   /* Return if RMP bit 1 indicating busy */
+ 

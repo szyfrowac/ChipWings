@@ -335,10 +335,15 @@ Gotchas found on the way:
 - OpenAMP learns Linux's endpoint address only from the first message Linux sends, so Linux must speak first (the heartbeat
   does that). Until then, and whenever nothing has come from Linux for 3 s, the tty discards output: stale telemetry is useless,
   queueing it gave Linux a burst plus a gap on attach, and sending to a dead peer is expensive (next point).
-- A dead Linux never acknowledges the IHC, so each `mpfs_rptun_notify` busy-waits through its whole retry budget (1000 x up to
-  10,000 MMIO reads). The MAVLink thread, at NSH's priority, then starves the NSH task for the first few simulated seconds
-  after Linux dies (the flight tasks run at higher priority and are not affected; in the test the shell answers about 117 s
-  wall clock after a panic, at 0.03x). Not fixed: bounding the notify retries in NuttX patch 0004 (both trees) would cut it.
+- A dead Linux never acknowledges the IHC, so every `mpfs_rptun_notify` runs its whole retry budget. NuttX patch 0005 (both
+  trees: `sw/patches/0005-*`, `sw/px4-patches/nuttx/0005-*`) bounds it: `mpfs_ihc_tx_message` used to spin up to 10,000 times
+  on the control register inside each of 1000 retries (about a second per failed notification on the board, although the
+  comment said 10 ms); now it reads once per attempt and `mpfs_rptun_notify` makes 100 attempts 10 us apart (about 1 ms).
+  Before: the MAVLink thread, at NSH's priority, starved the NSH task for the first few simulated seconds after Linux
+  died (flight tasks run at higher priority and were not affected). After: with Linux frozen, 255 notifications fail in
+  the 3 s before the tty's liveness gate closes (about 1 ms each); after a Linux panic the shell answers in 34 s wall
+  clock instead of 117 s (both at 0.03x speed). No lost kicks with the shorter budget: rpmsg_test 2000/2000 (PX4 + Linux and
+  Phase 4), examples 6/6, stress-ng with live MAVLink traffic 9/9, mavlink_test 11/11, no "notification lost" while Linux is alive.
 - A panicked Linux makes Renode run at about 0.03x real time (the spinning harts); use frozen harts for timing tests.
 - `mavlink start -r` is a byte budget: at 20000 B/s the default onboard streams throttled ATTITUDE to 10 Hz (tx rate mult 0.41).
 - NuttX's make ignores config changes: after enabling CONFIG_RPMSG_UART the old `drivers/serial.o` (built before the serial
