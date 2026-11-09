@@ -4,12 +4,15 @@
 Start first:  sim/phase5/run.sh headless linux     (wait until Linux shows its login prompt)
 Run:          sim/phase5/isolation_test.py [--stress-secs 60]
 
+  0. log in to Linux and start mavlink_link: PX4 refuses to arm without a data link (NAV_DLL_ACT 3 is a
+     board default since step 8), and the MAVLink traffic is part of the load PX4 must shrug off
   1. arm + takeoff on PX4 (NSH, telnet 33457), wait for z near -2.5 m
   2. baseline: `perf reset`, hover, `perf latency`
   3. stress-ng on the three Linux harts (telnet 33458, root/root): hover must hold, latency must not shift
-  4. echo c > /proc/sysrq-trigger (kernel panic): PX4 must keep hovering with no failsafe from the panic
-
-The MAVLink-link-loss failsafe part of the plan needs step 8 (MAVLink over RPMsg) and is not tested here.
+  4. echo c > /proc/sysrq-trigger (kernel panic): PX4 must stay alive and keep flying: still hovering, or
+     already landing on its own link-loss failsafe. Panicked harts spin and Renode drops to ~0.03x real
+     time, so only a few simulated seconds pass here; the full link-loss landing is tested in
+     mavlink_test.py (frozen harts, normal speed).
 """
 import argparse, random, re, socket, sys, time
 
@@ -40,13 +43,13 @@ class Console:
                 return out[:m.start()]
         raise TimeoutError(f"{self.name}: no end marker for {cmd!r}")
 
-def z_now(nsh):
-    out = nsh.run("listener vehicle_local_position -n 1")
+def z_now(nsh, timeout=60):
+    out = nsh.run("listener vehicle_local_position -n 1", timeout)
     m = re.search(r"^\s+z: (-?[\d.]+)", out, re.M)
     return float(m.group(1)) if m else None
 
-def nav_state(nsh):
-    out = nsh.run("commander status")
+def nav_state(nsh, timeout=60):
+    out = nsh.run("commander status", timeout)
     mode = re.search(r"navigation mode: (\w+)", out)
     return (mode.group(1) if mode else "?", "in failsafe: yes" in out, "Armed" in out and "Disarmed" not in out)
 
@@ -79,6 +82,18 @@ def main():
         print(f"{'PASS' if ok else 'FAIL'}  {name}  {detail}")
 
     nsh.run("echo sync")
+
+    # Linux login, then the companion link PX4 needs before it will arm
+    lin.s.sendall(b"\n")
+    time.sleep(1)
+    txt = lin.read(2)
+    if "login:" in txt:
+        lin.s.sendall(b"root\n"); time.sleep(1); lin.read(1)
+        lin.s.sendall(b"root\n"); time.sleep(1); lin.read(1)
+    lin.run("echo linux-ready", 30)
+    lin.s.sendall(b"mavlink_link 3000 > /tmp/ml.log 2>&1 &\n")
+    time.sleep(15)
+
     print(nsh.run("commander arm"), end="")
     nsh.run("commander takeoff")
     z = None
@@ -89,15 +104,6 @@ def main():
             break
     check("takeoff reaches 2.5 m", z is not None and z < -2.4, f"z={z}")
     time.sleep(10)
-
-    # Linux login
-    lin.s.sendall(b"\n")
-    time.sleep(1)
-    txt = lin.read(2)
-    if "login:" in txt:
-        lin.s.sendall(b"root\n"); time.sleep(1); lin.read(1)
-        lin.s.sendall(b"root\n"); time.sleep(1); lin.read(1)
-    lin.run("echo linux-ready", 30)
 
     # baseline
     nsh.run("perf reset")
@@ -138,18 +144,24 @@ def main():
     panic = lin.read(5)
     check("Linux panicked", "sysrq" in panic.lower() or "panic" in panic.lower() or "oops" in panic.lower(),
           panic.strip().splitlines()[-1][:80] if panic.strip() else "no console output")
+    # After the panic the MAVLink thread spends a few simulated seconds in IHC notify retries (the peer
+    # never acknowledges) before the link is declared down; that can starve the NSH task, so allow the
+    # shell a long wall-clock time to answer, and report how long it stayed silent in simulated time.
+    t_panic = time.time()
     zp = []
-    for _ in range(8):
+    for _ in range(4):
         time.sleep(5)
-        zp.append(z_now(nsh))
+        zp.append(z_now(nsh, timeout=900))
+    print(f"PX4 shell answered {time.time() - t_panic:.0f} s (wall) after the panic")
     zp = [z for z in zp if z is not None]
-    state = nav_state(nsh)
-    check("PX4 still hovering after Linux panic", bool(zp) and all(abs(z + 2.5) < 0.2 for z in zp),
-          f"z min/max = {min(zp):.2f}/{max(zp):.2f}" if zp else "no samples")
-    check("PX4 not in failsafe, still armed", not state[1] and state[2], f"{state}")
+    state = nav_state(nsh, timeout=900)
+    hovering = bool(zp) and all(abs(z + 2.5) < 0.2 for z in zp)
+    landing = state[1] and state[0] in ("Land", "Descend")   # link-loss failsafe already acting
+    check("PX4 still flying after Linux panic (hover or failsafe landing)", state[2] and (hovering or landing),
+          f"z min/max = {min(zp):.2f}/{max(zp):.2f} {state}" if zp else "no samples")
     after = latency(nsh)
     print(f"post-panic latency {after}")
-    check("PX4 shell responsive after panic", "vehicle_local_position" in nsh.run("uorb top -1"))
+    check("PX4 shell responsive after panic", "vehicle_local_position" in nsh.run("uorb top -1", 900))
 
     print(f"\n{sum(results)}/{len(results)} passed")
     sys.exit(0 if all(results) else 1)

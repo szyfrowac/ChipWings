@@ -94,6 +94,17 @@ __BEGIN_DECLS
 
 int board_rpmsg_initialize(void);
 
+/************************************************************************************
+ * Name: board_rpmsg_tty_initialize
+ *
+ * Description:
+ *   Register /dev/ttyRPMSG0, a raw-byte tty on the RPMsg endpoint "rpmsg-tty"
+ *   (rpmsg_tty.c). Must run before the rptun device comes up.
+ *
+ ************************************************************************************/
+
+int board_rpmsg_tty_initialize(void);
+
 #include <px4_platform_common/board_common.h>
 
 #endif /* __ASSEMBLY__ */

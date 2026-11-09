@@ -34,6 +34,7 @@
 add_library(drivers_board
 	init.cpp
 	rpmsg.c
+	rpmsg_tty.c
 )
 
 target_link_libraries(drivers_board

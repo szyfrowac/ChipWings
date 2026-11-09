@@ -100,6 +100,13 @@ int board_rpmsg_initialize(void)
 	}
 
 #  ifdef CONFIG_RPTUN
+	/* MAVLink tty for Linux; its callback has to exist before rptun_boot() */
+	ret = board_rpmsg_tty_initialize();
+
+	if (ret < 0) {
+		syslog(LOG_ERR, "[boot] rpmsg tty failed: %d\n", ret);
+	}
+
 	ret = kthread_create("rpmsg_start", RPMSG_START_PRIORITY, RPMSG_START_STACKSIZE, rpmsg_start_thread, NULL);
 
 	if (ret < 0) {

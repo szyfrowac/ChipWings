@@ -311,3 +311,40 @@ Closed loop with SIH (step 7, PX4 alone done 2026-11-09; isolation checks still 
 - Not covered: landing on failsafe when the MAVLink link drops (needs step 8, MAVLink over /dev/ttyRPMSG0), and real
   L2/DDR contention (Renode is not cycle accurate; repeat on the board at H4).
 - Open: SIH check in phase5_test.py.
+
+MAVLink to Linux over RPMsg (step 8, done 2026-11-09): `sim/phase5/run.sh headless linux`, wait for the Linux login prompt,
+then `sim/phase5/mavlink_test.py` (11/11). `sim/phase5/isolation_test.py` was reworked for this (9/9).
+- PX4 side: `boards/chipwings/mpfs-hart1/src/rpmsg_tty.c` registers `/dev/ttyRPMSG0` as a `uart_dev_t` on the RPMsg endpoint
+  `rpmsg-tty`, carrying raw bytes. NuttX's `uart_rpmsg.c` is the model but wraps each message in a header only NuttX
+  understands, which Linux's `rpmsg_tty` would pass to the application as data; this is it without the header and handshake.
+  Linux binds `rpmsg_tty` by the exact name `rpmsg-tty` (now built in, `CONFIG_RPMSG_TTY=y`) and creates `/dev/ttyRPMSG0`.
+  `init/rc.board_mavlink` starts `mavlink start -d /dev/ttyRPMSG0 -m onboard -r 100000` plus ATTITUDE 25 Hz and
+  LOCAL_POSITION_NED 10 Hz streams.
+- `CONFIG_RPMSG_UART=y` is set only because it selects the serial TX/RX DMA support our driver uses; it also makes
+  `drivers_initialize()` call `rpmsg_serialinit()`, which rpmsg_tty.c defines empty (the tty is registered from
+  `board_rpmsg_initialize()`, once the IHC is up).
+- Linux side: `examples/linux/mavlink_link.c` (hand-written MAVLink 2 framing, CRC table `mavlink_crcs.h` generated from PX4's
+  `mavlink/common/common.h`): 1 Hz HEARTBEAT, counts HEARTBEAT/ATTITUDE/LOCAL_POSITION_NED, CRC errors and sequence gaps,
+  optional `takeoff` (arm + takeoff commands, checks the acks and the altitude).
+- Result, 60 s: 60 heartbeats, 1500 ATTITUDE (25 Hz), 600 position, about 30,000 frames, 0 CRC errors, 0 sequence gaps.
+  Linux commands arm and takeoff (both acked), z -2.50 m.
+- Link loss: board defaults `NAV_DLL_ACT 3` (land) and `COM_DL_LOSS_T 5`. With Linux frozen (`sysbus.u54_N IsHalted true` for
+  harts 2-4), PX4 flags the link lost after about 10 s of simulated time, lands and disarms by itself (25 s after the freeze).
+  Consequence: PX4 now refuses to arm without a data link, so the isolation test starts `mavlink_link` first.
+Gotchas found on the way:
+- OpenAMP learns Linux's endpoint address only from the first message Linux sends, so Linux must speak first (the heartbeat
+  does that). Until then, and whenever nothing has come from Linux for 3 s, the tty discards output: stale telemetry is useless,
+  queueing it gave Linux a burst plus a gap on attach, and sending to a dead peer is expensive (next point).
+- A dead Linux never acknowledges the IHC, so each `mpfs_rptun_notify` busy-waits through its whole retry budget (1000 x up to
+  10,000 MMIO reads). The MAVLink thread, at NSH's priority, then starves the NSH task for the first few simulated seconds
+  after Linux dies (the flight tasks run at higher priority and are not affected; in the test the shell answers about 117 s
+  wall clock after a panic, at 0.03x). Not fixed: bounding the notify retries in NuttX patch 0004 (both trees) would cut it.
+- A panicked Linux makes Renode run at about 0.03x real time (the spinning harts); use frozen harts for timing tests.
+- `mavlink start -r` is a byte budget: at 20000 B/s the default onboard streams throttled ATTITUDE to 10 Hz (tx rate mult 0.41).
+- NuttX's make ignores config changes: after enabling CONFIG_RPMSG_UART the old `drivers/serial.o` (built before the serial
+  DMA fields existed) crashed `uart_open` on a NULL function pointer. `build-px4.sh` now deletes every NuttX `.o` when the
+  hash of the board defconfigs changes (stamp in `sw/out/patch-stamps/nuttx-defconfig.sha`).
+- `phase5_test.py` reads the boot line from dmesg, so run it once per boot. Its 100 ms sleep bound is now 110 ms (the flight
+  stack preempts the NSH task), and its param check uses COM_DISARM_PRFLT (SYS_AUTOSTART is 1100 by default now).
+  `perf latency` (99% of callouts within 25 us) sits at the edge with the flight stack running: 98.75% in one run, 99.2% in
+  another.

@@ -1,0 +1,12 @@
+#!/bin/sh
+#
+# MAVLink to the mission computer (Linux on harts 2-4) over RPMsg.
+#
+# /dev/ttyRPMSG0 is registered at boot (src/rpmsg_tty.c). Linux gets its end,
+# /dev/ttyRPMSG0 too, from rpmsg_tty once it attaches; until Linux sends its
+# first message nothing is transmitted and outgoing bytes are discarded.
+#------------------------------------------------------------------------------
+
+mavlink start -d /dev/ttyRPMSG0 -b 921600 -r 100000 -m onboard
+mavlink stream -d /dev/ttyRPMSG0 -s ATTITUDE -r 25
+mavlink stream -d /dev/ttyRPMSG0 -s LOCAL_POSITION_NED -r 10

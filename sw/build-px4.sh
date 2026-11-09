@@ -50,6 +50,20 @@ if [ -d "$SW/px4-chipwings" ]; then
   cp -r "$SW/px4-chipwings/." "$SW/px4/"
 fi
 
+# NuttX's own build does not depend on its config: after a defconfig change only files whose source
+# changed are rebuilt, so objects built under the old config (struct layouts depend on CONFIG_*) are
+# linked against code built under the new one and crash in confusing ways (a NULL function pointer in
+# uart_open after enabling serial DMA). Delete every NuttX object when the board's defconfig changes.
+NUTTX_TREE=$SW/px4/platforms/nuttx/NuttX
+DEFCONFIG_STAMP=$SW/out/patch-stamps/nuttx-defconfig.sha
+new_sum=$(cat "$SW"/px4/boards/*/*/nuttx-config/*/defconfig 2>/dev/null | sha256sum | cut -d' ' -f1)
+if [ "$(cat "$DEFCONFIG_STAMP" 2>/dev/null)" != "$new_sum" ]; then
+  echo "NuttX defconfig changed: removing stale NuttX objects"
+  find "$NUTTX_TREE/nuttx" "$NUTTX_TREE/apps" -name '*.o' -delete 2>/dev/null || true
+  mkdir -p "$(dirname "$DEFCONFIG_STAMP")"
+  echo "$new_sum" > "$DEFCONFIG_STAMP"
+fi
+
 # Applied patches are recorded in out/patch-stamps/<repo>: a later patch in a series can change the
 # context of an earlier one, which then neither applies nor reverse-applies on its own.
 apply_once() {  # repo patch

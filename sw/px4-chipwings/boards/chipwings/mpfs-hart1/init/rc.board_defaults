@@ -5,3 +5,7 @@
 
 # Phase 5 step 7: SIH quad (1100_rc_quad_x_sih) unless the user set an airframe.
 param set-default SYS_AUTOSTART 1100
+
+# Linux (the MAVLink peer on /dev/ttyRPMSG0) may hang or panic: if its heartbeat stops for 5 s, land on our own.
+param set-default NAV_DLL_ACT 3
+param set-default COM_DL_LOSS_T 5

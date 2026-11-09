@@ -4,3 +4,5 @@ CONFIG_BLK_DEV_INITRD=y
 # sysrq trigger (echo c > /proc/sysrq-trigger) for the PX4 isolation test (Phase 5 step 7)
 CONFIG_MAGIC_SYSRQ=y
 CONFIG_MAGIC_SYSRQ_DEFAULT_ENABLE=0x1
+# Linux end of the MAVLink link (Phase 5 step 8): /dev/ttyRPMSG0 from the rpmsg-tty endpoint PX4 announces
+CONFIG_RPMSG_TTY=y

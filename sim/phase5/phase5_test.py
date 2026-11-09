@@ -183,8 +183,10 @@ def main():
     out = c.run("tests hrt", timeout=120)
     per = [int(x) for x in re.findall(r"\), (\d+)$", out, re.M)]
     check("tests hrt: PASSED", "hrt PASSED" in out and out.count("tick\n") == 3)
-    # usleep(100 ms) rounds up to whole 1 ms NuttX ticks plus one, so 100-102 ms
-    check("tests hrt: 100 ms sleeps", len(per) == 10 and all(100000 <= p <= 102000 for p in per),
+    # usleep(100 ms) rounds up to whole 1 ms NuttX ticks plus one, so 100-102 ms on an idle board. Since
+    # step 7 the flight stack runs (about half the CPU) and preempts this priority-100 NSH task for a few
+    # ms, so the upper bound is 110 ms; timer accuracy itself is what `perf latency` below checks.
+    check("tests hrt: 100 ms sleeps", len(per) == 10 and all(100000 <= p <= 110000 for p in per),
           f"{min(per)}..{max(per)} us" if per else "no samples")
 
     # Multi-hart Renode delivers interrupts at time-quantum boundaries, and the hart taking the interrupt
@@ -210,17 +212,18 @@ def main():
     out = c.run("uorb top -1")
     check("uorb top", "TOPIC NAME" in out)
 
-    c.run("param set SYS_AUTOSTART 0")
-    c.run("param set SYS_AUTOSTART 1100")
+    # A parameter without a board default (SYS_AUTOSTART is 1100 by default since step 7, so setting
+    # it to 1100 would never be saved). COM_DISARM_PRFLT only matters when armed on the ground.
+    c.run("param set COM_DISARM_PRFLT 20")
     # autosave is deferred, so the saved flag (+) can take a moment to appear
     for _ in range(10):
-        out = c.run("param show SYS_AUTOSTART")
-        saved = re.search(r"x \+\s+SYS_AUTOSTART .*: 1100", out) is not None
+        out = c.run("param show COM_DISARM_PRFLT")
+        saved = re.search(r"x \+\s+COM_DISARM_PRFLT .*: 20", out) is not None
         if saved:
             break
         time.sleep(0.5)
-    check("param set/show, saved", saved, re.search(r".*SYS_AUTOSTART .*", out).group(0).strip() if "SYS_AUTOSTART" in out else "")
-    c.run("param set SYS_AUTOSTART 0")
+    check("param set/show, saved", saved, re.search(r".*COM_DISARM_PRFLT .*", out).group(0).strip() if "COM_DISARM_PRFLT" in out else "")
+    c.run("param set COM_DISARM_PRFLT 10")
 
     if args.target == "renode":
         mon = Monitor(args.monitor)
