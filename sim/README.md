@@ -289,3 +289,25 @@ and every step 5 check with Linux running). Phase 4's `examples/run_examples.py`
 - Patch tracking: build-px4.sh and build-nuttx.sh record applied patches in sw/out/patch-stamps/ (a later patch can
   change an earlier one's context so neither --check nor --check --reverse works on it alone).
 - The Linux image has no `timeout` and no `stress-ng`; step 7's load test needs stress-ng added to Buildroot.
+
+Closed loop with SIH (step 7, PX4 alone done 2026-11-09; isolation checks still open): `sim/phase5/run.sh headless`, then
+`commander arm`, `commander takeoff` on the NSH console (telnet localhost 33457).
+- Board `default.px4board` now builds simulator_sih, commander, ekf2, sensors, mc_{att,pos,rate}_control, control_allocator,
+  flight_mode_manager, navigator, land_detector, load_mon, mavlink, events, dataman, manual_control, rc_update (1.5 MB code).
+  `rc.board_defaults` sets `SYS_AUTOSTART 1100` (1100_rc_quad_x_sih, SYS_HITL 2).
+- Real bug found: modules hard-code stack sizes for 32-bit ARM (`sih` asks for 1560 bytes). On RV64 it used 100%, overflowed
+  into the heap and NuttX asserted in `mm_mallinfo.c:72` (free list check) from `wq:lp_default`. PX4's POSIX layer already
+  doubles stacks on 64-bit (`PX4_STACK_ADJUSTED`); the NuttX layer did not. PX4 patch 0006 scales `px4_task_spawn_cmd` stacks
+  by `__SIZEOF_POINTER__ >> 2`. Work queues already use PX4_STACK_ADJUSTED.
+- Result: EKF2 at 100 Hz (avg 1.25 ms per update, attitude/local/global position valid), arm + takeoff, z -2.50 m held,
+  navigation mode Hold, no failsafe. Renode ran at ~1.0x real time. CPU 54% busy (rate_ctrl 16%, sih 16%, ekf2 14%,
+  nav_and_controllers 6%). `perf latency`: 81180 of ~200k callouts in the 1 us bucket, 67473 in 50 us, 2238 in 100 us, none above.
+- Expected noise: "command not found" for modules not built (tone_alarm, rgbled, px4io, rc_input, ...), UAVCAN_ENABLE and GPS_1_CONFIG
+  not found, `param 65535 invalid` from parameters not present on this board.
+- Isolation checks done 2026-11-09: `run.sh headless linux`, then `sim/phase5/isolation_test.py` -> 10/10. Hover at -2.5 m (+-0.01 m)
+  while stress-ng (`--cpu 3 --vm 2`, 8 procs, loadavg 2.2) runs on the Linux harts; no failsafe, no callout over 100 us beyond
+  baseline (3 vs 0 in the 100 us bucket, none above); then `echo c > /proc/sysrq-trigger` (Kernel panic) and PX4 keeps
+  hovering, armed, in Hold, shell responsive. Linux image now has stress-ng (`BR2_PACKAGE_STRESS_NG`) and CONFIG_MAGIC_SYSRQ.
+- Not covered: landing on failsafe when the MAVLink link drops (needs step 8, MAVLink over /dev/ttyRPMSG0), and real
+  L2/DDR contention (Renode is not cycle accurate; repeat on the board at H4).
+- Open: SIH check in phase5_test.py.

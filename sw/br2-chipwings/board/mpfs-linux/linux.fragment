@@ -1,3 +1,6 @@
 # Chipwings additions on top of the mpfs defconfig and Microchip's board fragment.
 # Root filesystem is an initramfs built into the kernel (BR2_TARGET_ROOTFS_INITRAMFS).
 CONFIG_BLK_DEV_INITRD=y
+# sysrq trigger (echo c > /proc/sysrq-trigger) for the PX4 isolation test (Phase 5 step 7)
+CONFIG_MAGIC_SYSRQ=y
+CONFIG_MAGIC_SYSRQ_DEFAULT_ENABLE=0x1

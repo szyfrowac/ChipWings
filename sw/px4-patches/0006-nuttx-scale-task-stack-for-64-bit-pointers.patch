@@ -1,0 +1,16 @@
+diff --git a/platforms/nuttx/src/px4/common/tasks.cpp b/platforms/nuttx/src/px4/common/tasks.cpp
+index 0b863c8c..14532e95 100644
+--- a/platforms/nuttx/src/px4/common/tasks.cpp
++++ b/platforms/nuttx/src/px4/common/tasks.cpp
+@@ -60,6 +60,11 @@ int px4_task_spawn_cmd(const char *name, int scheduler, int priority, int stack_
+ {
+ 	sched_lock();
+ 
++	// Stack sizes in the modules are tuned for 32-bit ARM. With 8-byte pointers and registers the same
++	// call chains need about twice the stack (PX4's POSIX layer does the same, see PX4_STACK_ADJUSTED).
++	// An undersized stack here silently corrupts the heap next to it.
++	stack_size *= (__SIZEOF_POINTER__ >> 2);
++
+ #if !defined(CONFIG_DISABLE_ENVIRON)
+ 	/* None of the modules access the environment variables (via getenv() for instance), so delete them
+ 	 * all. They are only used within the startup script, and NuttX automatically exports them to the children

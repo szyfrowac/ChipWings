@@ -47,3 +47,6 @@ BR2_TARGET_OPENSBI_ADDITIONAL_VARIABLES="FW_TEXT_START=0x80000000 FW_JUMP_FDT_AD
 
 # Test programs from examples/linux (hartcheck, rpmsg_ping, rpmsg_echo, rpmsg_imu)
 BR2_PACKAGE_CHIPWINGS_EXAMPLES=y
+
+# CPU/cache/memory stress for the PX4 isolation check (Phase 5 step 7)
+BR2_PACKAGE_STRESS_NG=y
