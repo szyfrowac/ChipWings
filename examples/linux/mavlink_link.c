@@ -243,7 +243,9 @@ int main(int argc, char **argv)
 	struct termios t;
 	uint8_t buf[512];
 	double start, next_hb, t_arm = 0, t_takeoff = 0;
-	int fd, ok = 1, armed_sent = 0, takeoff_sent = 0;
+	int fd, ok = 1, armed_sent = 0, takeoff_sent = 0, ack_reported = 0;
+
+	setvbuf(stdout, NULL, _IOLBF, 0);   /* progress lines reach a log file while the program runs */
 
 	fd = open(DEV, O_RDWR | O_NOCTTY);
 	if (fd < 0) {
@@ -280,6 +282,11 @@ int main(int argc, char **argv)
 			send_command(fd, CMD_NAV_TAKEOFF, 0, NAN);
 			takeoff_sent = 1;
 			t_takeoff = tnow;
+		}
+
+		if (takeoff_sent && !ack_reported && s.ack_result[1] != -1) {
+			printf("mavlink_link: takeoff ack %d\n", s.ack_result[1]);
+			ack_reported = 1;
 		}
 
 		FD_ZERO(&rf);

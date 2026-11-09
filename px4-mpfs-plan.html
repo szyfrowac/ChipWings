@@ -76,6 +76,21 @@ footer { color: var(--muted); font-size: 0.9rem; border-top: 1px solid var(--lin
 </header>
 
 <section>
+  <div class="change" id="progress">
+    <h2>Progress and deviations, 9 November 2026</h2>
+    <ul>
+      <li>Steps 1&ndash;9 are done in Renode. Checks: <code>sim/phase5/phase5_test.py</code> (steps 5&ndash;6, and <code>--flight</code> for steps 7&ndash;8 and the isolation checks), <code>sim/phase4/rpmsg_test.py</code>, <code>examples/run_examples.py</code>. Details and gotchas are in <code>sim/README.md</code>, Phase 5.</li>
+      <li><strong>Step 7</strong>: the NuttX layer did not scale task stacks for 64-bit pointers (PX4's POSIX layer does), so <code>sih</code>'s 1560-byte stack overflowed into the heap. PX4 patch 0006 doubles them. Hover holds at 2.5 m with stress-ng on all three Linux harts.</li>
+      <li><strong>Step 8</strong>: the board registers <code>/dev/ttyRPMSG0</code> itself (<code>rpmsg_tty.c</code>), as planned. It sends nothing until Linux has sent a first message (OpenAMP learns Linux's endpoint address from it) and drops output when Linux has been silent for 3 s. <code>mavlink -r</code> is set to 100000 B/s; at 20000 the default streams throttled ATTITUDE to 10 Hz. Linux needs <code>CONFIG_RPMSG_TTY=y</code>.</li>
+      <li><strong>New, not in the plan</strong>: link-loss failsafe defaults (<code>NAV_DLL_ACT 3</code>, <code>COM_DL_LOSS_T 5</code>): PX4 lands by itself when Linux's heartbeat stops, and refuses to arm without a data link. Tested with Linux frozen: lost after about 10 s, landed and disarmed after 25 s.</li>
+      <li><strong>New</strong>: NuttX patch 0005 bounds the IHC notify retry budget (a failed notification cost about a second on the board; now about 1 ms), applied to both NuttX trees. <code>build-px4.sh</code> deletes stale NuttX objects when the board's defconfig changes.</li>
+      <li><strong>Not done</strong>: the HSS boot rehearsal in Renode (addition B), <code>--target board</code> for <code>rpmsg_test.py</code> and <code>run_examples.py</code> (addition A), and the MSS watchdog (Phase 6). The <code>perf latency</code> check (99% within 25 &micro;s with Linux running) is marginal at 98.7&ndash;99.2%.</li>
+      <li>Renode artifact: a panicked Linux (spinning harts) slows the simulation to about 0.03&times; real time, so timing checks that follow a panic use halted harts instead.</li>
+    </ul>
+  </div>
+</section>
+
+<section>
   <div class="change">
     <h2>What changed in revision 3</h2>
     <ul>

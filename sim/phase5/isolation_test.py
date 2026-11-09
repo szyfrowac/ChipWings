@@ -12,7 +12,7 @@ Run:          sim/phase5/isolation_test.py [--stress-secs 60]
   4. echo c > /proc/sysrq-trigger (kernel panic): PX4 must stay alive and keep flying: still hovering, or
      already landing on its own link-loss failsafe. Panicked harts spin and Renode drops to ~0.03x real
      time, so only a few simulated seconds pass here; the full link-loss landing is tested in
-     mavlink_test.py (frozen harts, normal speed).
+     phase5_test.py --flight (frozen harts, normal speed).
 """
 import argparse, random, re, socket, sys, time
 

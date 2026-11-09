@@ -313,7 +313,8 @@ Closed loop with SIH (step 7, PX4 alone done 2026-11-09; isolation checks still 
 - Open: SIH check in phase5_test.py.
 
 MAVLink to Linux over RPMsg (step 8, done 2026-11-09): `sim/phase5/run.sh headless linux`, wait for the Linux login prompt,
-then `sim/phase5/mavlink_test.py` (11/11). `sim/phase5/isolation_test.py` was reworked for this (9/9).
+then `sim/phase5/phase5_test.py --linux --flight` (see Step 9 below). `sim/phase5/isolation_test.py` is the Renode-only
+variant of the isolation checks with a kernel panic instead of frozen harts (9/9).
 - PX4 side: `boards/chipwings/mpfs-hart1/src/rpmsg_tty.c` registers `/dev/ttyRPMSG0` as a `uart_dev_t` on the RPMsg endpoint
   `rpmsg-tty`, carrying raw bytes. NuttX's `uart_rpmsg.c` is the model but wraps each message in a header only NuttX
   understands, which Linux's `rpmsg_tty` would pass to the application as data; this is it without the header and handshake.
@@ -343,7 +344,7 @@ Gotchas found on the way:
   died (flight tasks run at higher priority and were not affected). After: with Linux frozen, 255 notifications fail in
   the 3 s before the tty's liveness gate closes (about 1 ms each); after a Linux panic the shell answers in 34 s wall
   clock instead of 117 s (both at 0.03x speed). No lost kicks with the shorter budget: rpmsg_test 2000/2000 (PX4 + Linux and
-  Phase 4), examples 6/6, stress-ng with live MAVLink traffic 9/9, mavlink_test 11/11, no "notification lost" while Linux is alive.
+  Phase 4), examples 6/6, stress-ng with live MAVLink traffic 9/9, `phase5_test.py --flight`, no "notification lost" while Linux is alive.
 - A panicked Linux makes Renode run at about 0.03x real time (the spinning harts); use frozen harts for timing tests.
 - `mavlink start -r` is a byte budget: at 20000 B/s the default onboard streams throttled ATTITUDE to 10 Hz (tx rate mult 0.41).
 - NuttX's make ignores config changes: after enabling CONFIG_RPMSG_UART the old `drivers/serial.o` (built before the serial
@@ -353,3 +354,22 @@ Gotchas found on the way:
   stack preempts the NSH task), and its param check uses COM_DISARM_PRFLT (SYS_AUTOSTART is 1100 by default now).
   `perf latency` (99% of callouts within 25 us) sits at the edge with the flight stack running: 98.75% in one run, 99.2% in
   another.
+
+Tests and docs (step 9, done 2026-11-09): one suite for the whole phase.
+- `sim/phase5/run.sh headless linux`, then `sim/phase5/phase5_test.py --linux --flight` -> 30/30. About 15 minutes wall clock.
+  Without `--flight` it is the step 5 (`run.sh headless`) or step 6 (`--linux`) suite; with `--target board --serial ...
+  --linux-serial ...` the same checks run on the Icicle Kit (the Linux freeze becomes a sysrq panic there).
+- `--flight` covers: Linux has `/dev/ttyRPMSG0`; 60 s of MAVLink (heartbeat 1 Hz, ATTITUDE 25 Hz, no CRC errors or sequence gaps);
+  arm and takeoff commanded from Linux (both acked); EKF2 healthy; hover at 2.5 m; stress-ng on the Linux harts (hover holds,
+  no failsafe, no late HRT callouts); Linux frozen: PX4 declares the link lost within 15 s, lands and disarms by itself.
+  Measured: Renode runs the flight at 0.6-0.8x real time, PX4 about 80% busy while hovering with MAVLink streaming.
+- Run the suite once per boot, on a fresh boot: the dmesg check needs the boot lines and the flight ends with the vehicle
+  disarmed on the ground and Linux gone.
+- Renode's telnet monitor answers one connection at a time; a second connection is accepted and its commands silently
+  ignored. The suite's first version left a monitor socket open and the "freeze Linux" command did nothing: PX4 kept
+  receiving heartbeats and never declared the link lost (the diagnostics block of the failing check showed `GCS heartbeat
+  valid`). Close every `Monitor`; the suite now reads `IsHalted` back and fails with "Linux is really gone" if the freeze
+  did not take.
+- The `perf latency` check (99% of callouts within 25 us) is marginal with the flight stack running: 98.6-99.3% over runs.
+- Not done: `--target board` for `phase4/rpmsg_test.py` and `examples/run_examples.py` (plan addition A), the HSS boot
+  rehearsal in Renode (addition B), the MSS watchdog (Phase 6), and the Phase 2 Linux guide has no Phase 5 results yet.

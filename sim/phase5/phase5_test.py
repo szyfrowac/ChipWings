@@ -3,7 +3,8 @@
 
     sim/phase5/phase5_test.py                       step 5, PX4 alone      (run.sh headless)
     sim/phase5/phase5_test.py --linux               step 6, PX4 + Linux    (run.sh headless linux)
-    sim/phase5/phase5_test.py --target board --serial /dev/ttyUSB1 [--linux --linux-serial /dev/ttyUSB3]
+    sim/phase5/phase5_test.py --linux --flight      steps 7-8, flight with Linux (run.sh headless linux)
+    sim/phase5/phase5_test.py --target board --serial /dev/ttyUSB1 [--linux --linux-serial /dev/ttyUSB3 [--flight]]
 
 Renode: PX4 NSH on telnet 33457, Linux on 33458, monitor on 33456. Board: MMUART1 / MMUART3 (pyserial).
 
@@ -15,6 +16,16 @@ perf latency has most callouts in the 1-5 us buckets; top, work_queue status and
 parameter can be set and reads back as saved. With --linux, also: Linux logs in, hartcheck passes (Linux
 on harts 2-4 only), rpmsg_ping round trips to PX4's NuttX, and every PX4 check above still passes with
 Linux running. For the long RPMsg run use sim/phase4/rpmsg_test.py 500.
+
+--flight (needs --linux; steps 7 and 8, about 10 minutes of simulated time) flies the SIH quad with Linux
+as the companion computer: 60 s of MAVLink over /dev/ttyRPMSG0 (heartbeat 1 Hz, ATTITUDE 25 Hz, no CRC
+errors or sequence gaps); arm and takeoff commanded from Linux; EKF2 healthy and the hover holding;
+stress-ng on the Linux harts while hovering (hover holds, no failsafe, no late HRT callouts); and finally
+Linux is lost (Renode: harts 2-4 halted from the monitor; board: sysrq panic) and PX4 must declare the
+data link lost, land and disarm on its own. Run it once per boot, on a freshly booted system: the dmesg
+check needs the boot lines, and the flight leaves the vehicle disarmed on the ground with Linux gone.
+sim/phase5/isolation_test.py is the Renode variant with a kernel panic instead (it checks only that PX4
+keeps flying and the shell comes back: a panicked Linux slows Renode to about 0.03x real time).
 
 Exit status 0 when every check passes.
 """
@@ -136,6 +147,11 @@ class Monitor:
         self.s.sendall(line.encode() + b"\n")
         return self._read(3)
 
+    def close(self):
+        # Renode's telnet monitor answers only one connection at a time: a connection left open starves
+        # every later one (commands are accepted and silently ignored).
+        self.s.close()
+
 
 results = []
 
@@ -143,6 +159,154 @@ results = []
 def check(name, ok, detail=""):
     results.append(ok)
     print(f"{'PASS' if ok else 'FAIL'}  {name}" + (f"  ({detail})" if detail else ""))
+
+
+def vehicle(c):
+    """(z in m, PX4 clock in s) from vehicle_local_position."""
+    out = c.run("listener vehicle_local_position -n 1")
+    z = re.search(r"^\s+z: (-?[\d.]+)", out, re.M)
+    t = re.search(r"^\s+timestamp: (\d+)", out, re.M)
+    return (float(z.group(1)) if z else None), (int(t.group(1)) / 1e6 if t else None)
+
+
+def commander(c):
+    """(navigation mode, in failsafe, armed)."""
+    out = c.run("commander status")
+    mode = re.search(r"navigation mode: (\w+)", out)
+    return (mode.group(1) if mode else "?"), "in failsafe: yes" in out, "Armed" in out and "Disarmed" not in out
+
+
+def late_callouts(c):
+    """HRT callouts later than 100 us since the last `perf reset`."""
+    out = c.run("perf latency")
+    return sum(int(n) for b, n in re.findall(r"^\s*(>?\d+) : (\d+)$", out, re.M) if b.startswith(">") or int(b) >= 1000)
+
+
+def hovering(z):
+    return z is not None and abs(z + 2.5) < 0.2
+
+
+def freeze_linux(args, lx):
+    """Make Linux disappear; returns (how, confirmed). Renode: halt harts 2-4 (a hung Linux, and the
+    simulation keeps its speed), confirmed by reading IsHalted back. Board: panic it (nothing to read back)."""
+    if args.target == "renode":
+        mon = Monitor(args.monitor)
+        try:
+            for h in (2, 3, 4):
+                mon.cmd(f"sysbus.u54_{h} IsHalted true")
+            halted = [re.search(r"\bTrue\b", mon.cmd(f"sysbus.u54_{h} IsHalted")) is not None for h in (2, 3, 4)]
+        finally:
+            mon.close()
+        return "harts 2-4 halted", all(halted)
+    lx._send(b"echo c > /proc/sysrq-trigger\r")
+    return "sysrq panic", True
+
+
+def flight(args, c, lx):
+    secs = 60
+    check("flight: Linux has /dev/ttyRPMSG0", "/dev/ttyRPMSG0" in lx.run("ls /dev/ttyRPMSG0 2>&1", 10))
+
+    # Step 8: the link. mavlink_link sends a heartbeat every second, which PX4 needs both to learn Linux's
+    # endpoint address and, since the link-loss failsafe is on, before it will arm.
+    out = lx.run(f"mavlink_link {secs}", secs * 5 + 60)
+    m = re.search(r"(\d+) heartbeats, (\d+) attitude", out)
+    hb, att = (int(m.group(1)), int(m.group(2))) if m else (0, 0)
+    check("mavlink: heartbeat about 1 Hz", hb >= secs - 3, f"{hb} in {secs} s")
+    check("mavlink: ATTITUDE about 25 Hz", att >= secs * 20, f"{att} in {secs} s")
+    check("mavlink: no CRC errors, no sequence gaps", "crc errors 0, sequence gaps 0" in out,
+          (re.findall(r"crc errors.*", out) or ["no result"])[-1])
+
+    # Step 7: the closed loop, commanded from Linux over MAVLink. The program stays up for the rest of the
+    # flight: with NAV_DLL_ACT 3 PX4 lands 5 s after the last heartbeat, and a second one is the link
+    # the isolation checks below rely on.
+    lx.run("(mavlink_link 3000 takeoff > /tmp/ml.log 2>&1 &)", 10)
+    z = None
+    for _ in range(40):
+        time.sleep(3)
+        z = vehicle(c)[0]
+        if z is not None and z < -2.4:
+            break
+    log = lx.run("cat /tmp/ml.log", 10)
+    check("mavlink: arm and takeoff commanded from Linux, both acknowledged",
+          "arm ack 0" in log and "takeoff ack 0" in log and z is not None and z < -2.4,
+          f"z={z}; " + "; ".join(re.findall(r"(?:arm|takeoff) ack -?\d+", log)))
+    time.sleep(10)
+    out = c.run("ekf2 status")
+    check("sih: EKF2 running, attitude and position valid",
+          "attitude: 1, local position: 1, global position: 1" in out,
+          (re.findall(r"EKF dt.*", out) or ["no status"])[-1])
+    z0, t0 = vehicle(c)
+    wall0 = time.time()
+    zs = [z0]
+    for _ in range(6):
+        time.sleep(5)
+        zs.append(vehicle(c)[0])
+    z1, t1 = vehicle(c)
+    zs = [z for z in zs if z is not None]
+    check("sih: hover at 2.5 m holds", bool(zs) and all(hovering(z) for z in zs),
+          f"z {min(zs):.2f}..{max(zs):.2f} m" if zs else "no samples")
+    check("sih: armed, no failsafe", commander(c)[1:] == (False, True), str(commander(c)))
+    if t0 and t1:
+        print(f"      simulated {t1 - t0:.1f} s in {time.time() - wall0:.1f} s of wall clock "
+              f"({(t1 - t0) / (time.time() - wall0):.2f}x)")
+    cpu = re.search(r"CPU usage: ([\d.]+)% tasks", c.run("top once"))
+    if cpu:
+        print(f"      CPU: {cpu.group(1)}% busy while hovering with MAVLink streaming")
+
+    # Isolation (a): Linux under full load must not touch the flight
+    c.run("perf reset")
+    time.sleep(20)
+    base = late_callouts(c)
+    lx.run(f"(stress-ng --cpu 3 --vm 2 --vm-bytes 32M --timeout {args.stress_secs}s > /tmp/stress.log 2>&1 &)", 10)
+    time.sleep(5)
+    procs = lx.run("ps | grep -c '[s]tress-ng'", 10).strip().splitlines()[-1:]
+    check("isolation: stress-ng running on the Linux harts", bool(procs) and procs[0].isdigit() and int(procs[0]) >= 4,
+          f"{procs[0] if procs else '?'} processes")
+    c.run("perf reset")
+    zs = []
+    end = time.time() + args.stress_secs - 10
+    while time.time() < end:
+        time.sleep(5)
+        zs.append(vehicle(c)[0])
+    zs = [z for z in zs if z is not None]
+    check("isolation: hover holds under stress-ng", bool(zs) and all(hovering(z) for z in zs),
+          f"z {min(zs):.2f}..{max(zs):.2f} m" if zs else "no samples")
+    check("isolation: no failsafe under stress-ng", commander(c)[1:] == (False, True), str(commander(c)))
+    loaded = late_callouts(c)
+    check("isolation: no more late HRT callouts under stress-ng", loaded <= base, f"{base} idle, {loaded} loaded")
+    time.sleep(15)   # let stress-ng finish
+
+    # Isolation (b): Linux gone. PX4 must notice (COM_DL_LOSS_T 5 s), land (NAV_DLL_ACT 3) and disarm by itself.
+    how, confirmed = freeze_linux(args, lx)
+    check(f"link loss: Linux is really gone ({how})", confirmed)
+    _, sim0 = vehicle(c)
+    wall0, t_fail, landed, el = time.time(), None, False, 0.0
+    while time.time() - wall0 < 900:
+        time.sleep(3)
+        mode, failsafe, armed = commander(c)
+        z, sim = vehicle(c)
+        el = (sim - sim0) if sim and sim0 else float("nan")
+        print(f"      link lost +{el:5.1f} s: mode={mode} failsafe={failsafe} armed={armed} z={z}")
+        if failsafe and t_fail is None:
+            t_fail = el
+        if not armed and z is not None and z > -0.3:
+            landed = True
+            break
+        if el > 180:
+            break
+    check(f"link loss ({how}): PX4 declares the data link lost within 15 s", t_fail is not None and t_fail < 15,
+          f"after {t_fail:.1f} s" if t_fail is not None else "never")
+    check("link loss: PX4 lands and disarms on its own", landed, f"after {el:.0f} s")
+    if t_fail is None or not landed:
+        # what PX4 thinks of the link, and whether Linux is really gone
+        print("      --- diagnostics ---")
+        print(c.run("mavlink status")[:900])
+        print(c.run("listener failsafe_flags -n 1")[:1200])
+        if args.target == "renode":
+            mon = Monitor(args.monitor)
+            for h in (2, 3, 4):
+                print(f"      u54_{h}: {mon.cmd(f'sysbus.u54_{h} IsHalted').strip().splitlines()[-1:]}")
+            mon.close()
 
 
 def main():
@@ -155,7 +319,11 @@ def main():
     ap.add_argument("--linux", action="store_true", help="step 6: Linux runs on harts 2-4 too")
     ap.add_argument("--linux-port", type=int, default=33458, help="Renode Linux console socket")
     ap.add_argument("--linux-serial", default="/dev/ttyUSB3", help="board: MMUART3 serial device")
+    ap.add_argument("--flight", action="store_true", help="steps 7-8: SIH flight with Linux as companion (needs --linux)")
+    ap.add_argument("--stress-secs", type=int, default=60, help="--flight: stress-ng duration")
     args = ap.parse_args()
+    if args.flight and not args.linux:
+        ap.error("--flight needs --linux")
 
     if args.linux:
         lx = LinuxConsole(args.target, args.linux_port, args.linux_serial, args.baud)
@@ -194,7 +362,10 @@ def main():
     # nothing later than 20 us at a 10 us quantum; see px4-linux.resc). On the board it is 5 us.
     limit = 5
     if args.target == "renode":
-        q = re.search(r"Quantum: (\d+):(\d+):([\d.]+)", Monitor(args.monitor).cmd("machine GetTimeSourceInfo"))
+        mon = Monitor(args.monitor)
+        info = mon.cmd("machine GetTimeSourceInfo")
+        mon.close()
+        q = re.search(r"Quantum: (\d+):(\d+):([\d.]+)", info)
         quantum_us = round(float(q.group(3)) * 1e6) if q else 100
         if args.linux:
             limit += 2 * quantum_us
@@ -238,9 +409,13 @@ def main():
             if v and len(t) == 2:
                 samples.append((int(v.group(1)) * 3600 + int(v.group(2)) * 60 + float(v.group(3)), int(t[-1], 16)))
             time.sleep(3)
+        mon.close()
         ok = len(samples) == 2 and samples[1][0] > samples[0][0]
         rate = (samples[1][1] - samples[0][1]) / (samples[1][0] - samples[0][0]) if ok else 0
         check("hrt (mtime) advances 1,000,000 per simulated second", ok and abs(rate - 1e6) < 1, f"{rate:.0f}/s")
+
+    if args.flight:
+        flight(args, c, lx)
 
     print(f"\n{sum(results)}/{len(results)} checks passed")
     return 0 if all(results) else 1
