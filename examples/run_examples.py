@@ -4,41 +4,19 @@
 Start the simulation first (sim/phase4/run.sh headless), then:
 
     examples/run_examples.py [--nsh-port 33457] [--linux-port 33458]
+    examples/run_examples.py --target board [--nsh-serial /dev/ttyUSB1] [--linux-serial /dev/ttyUSB3]
 
 NuttX side (NSH on MMUART1): cw_timer, cw_threads, then starts the RPMsg servers
 cw_rpmsg_echo and cw_rpmsg_imu. Linux side (MMUART3, root/root): hartcheck,
 rpmsg_ping, rpmsg_echo, rpmsg_imu. Exit status 0 when everything passed.
 """
 import argparse
-import re
-import socket
+import os
 import sys
 import time
 
-ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
-
-
-class Console:
-    def __init__(self, port):
-        self.s = socket.create_connection(("127.0.0.1", port))
-        self.s.settimeout(0.3)
-
-    def read_until(self, pattern, timeout):
-        buf, end = "", time.time() + timeout
-        while time.time() < end:
-            try:
-                d = self.s.recv(65536)
-                if d:
-                    buf += ANSI.sub("", d.decode(errors="replace")).replace("\r", "")
-                    m = re.search(pattern, buf)
-                    if m:
-                        return buf, m
-            except socket.timeout:
-                pass
-        return buf, None
-
-    def send(self, line):
-        self.s.sendall(line.encode() + b"\r")
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "sim", "common"))
+from cwconsole import Console, add_target_args  # noqa: E402
 
 
 def run(console, name, command, timeout):
@@ -56,13 +34,12 @@ def run(console, name, command, timeout):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--nsh-port", type=int, default=33457)
-    ap.add_argument("--linux-port", type=int, default=33458)
+    add_target_args(ap)
     args = ap.parse_args()
     results = []
 
     print("NuttX (hart 1):")
-    nsh = Console(args.nsh_port)
+    nsh = Console.open(args, "nsh")
     nsh.send("")
     nsh.read_until(r"nsh> ", 5)
     results.append(run(nsh, "cw_timer", "cw_timer 100 10", 60))
@@ -76,14 +53,8 @@ def main():
     print("  cw_rpmsg_echo, cw_rpmsg_imu started")
 
     print("Linux (harts 2-4):")
-    lx = Console(args.linux_port)
-    lx.send("")
-    out, _ = lx.read_until(r"login:|# $", 10)
-    if "login:" in out:
-        lx.send("root")
-        lx.read_until(r"Password:", 5)
-        lx.send("root")
-        lx.read_until(r"# $", 10)
+    lx = Console.open(args, "linux")
+    lx.login()
     time.sleep(1)  # name-service announcements of the new NuttX endpoints
     results.append(run(lx, "hartcheck", "hartcheck", 30))
     results.append(run(lx, "rpmsg_ping", "rpmsg_ping 200 64", 120))

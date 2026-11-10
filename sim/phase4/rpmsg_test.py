@@ -5,15 +5,18 @@ Logs into Linux on its console (telnet port 33458), binds rpmsg_char to NuttX's
 "rpmsg-ping" channel (/dev/rpmsg0) and sends N ping requests. NuttX's rpmsg_ping
 endpoint on hart 1 echoes each one back; the payload of every reply is checked.
 
-    sim/phase4/rpmsg_test.py [rounds] [--port 33458]
+    sim/phase4/rpmsg_test.py [rounds] [--linux-port 33458]
+    sim/phase4/rpmsg_test.py [rounds] --target board [--linux-serial /dev/ttyUSB3]
 
 Exit status 0 when every round trip came back intact.
 """
 import argparse
+import os
 import re
-import socket
 import sys
-import time
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "common"))
+from cwconsole import Console as _Console, add_target_args  # noqa: E402
 
 # Runs inside Linux (BusyBox sh). Request = rpmsg_ping_msg_s: cmd (ACK bit) | len | cookie | data.
 GUEST_SCRIPT = r"""
@@ -41,48 +44,22 @@ BIND = ("modprobe rpmsg_char; D=$(ls /sys/bus/rpmsg/devices | grep rpmsg-ping); 
         "echo $D > /sys/bus/rpmsg/drivers/rpmsg_chrdev/bind; }; ls /dev/rpmsg0")
 
 
-class Console:
-    def __init__(self, port):
-        self.s = socket.create_connection(("127.0.0.1", port))
-        self.s.settimeout(0.3)
-
-    def read_until(self, pattern, timeout):
-        buf, end = "", time.time() + timeout
-        while time.time() < end:
-            try:
-                d = self.s.recv(65536)
-                if d:
-                    buf += re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", d.decode(errors="replace")).replace("\r", "")
-                    if re.search(pattern, buf):
-                        return buf
-            except socket.timeout:
-                pass
-        return buf
-
-    def send(self, line):
-        self.s.sendall(line.encode() + b"\r")
-
+class Console(_Console):
     def run(self, cmd, timeout):
         """Run a shell command, return its output (up to an end marker that only the command's own echo produces)."""
         self.send(cmd + "; echo __END__$((40+2))")
-        out = self.read_until(r"__END__42", timeout)
+        out, _ = self.read_until(r"__END__42", timeout)
         return out.split("__END__$((40+2))")[-1]
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("rounds", nargs="?", type=int, default=100)
-    ap.add_argument("--port", type=int, default=33458)
+    add_target_args(ap)
     args = ap.parse_args()
 
-    c = Console(args.port)
-    c.send("")
-    out = c.read_until(r"login:|# $", 10)
-    if "login:" in out:
-        c.send("root")
-        c.read_until(r"Password:", 5)
-        c.send("root")
-        c.read_until(r"# $", 10)
+    c = Console.open(args, "linux")
+    c.login()
 
     for line in GUEST_SCRIPT.strip().split("\n"):
         c.send(line)
